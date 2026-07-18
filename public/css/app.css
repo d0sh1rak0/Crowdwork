@@ -1174,3 +1174,192 @@ a:hover {
 .run-view .stage-controls {
   z-index: 30;
 }
+
+/* —— Script import (onboarding) —— */
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 2rem 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.or-divider::before,
+.or-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.script-import {
+  width: 100%;
+  max-width: 40rem;
+}
+.script-paste {
+  min-height: 180px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #12141a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+.script-paste:focus {
+  border-color: #FFD60A;
+  box-shadow: 0 0 0 3px rgba(255, 214, 10, 0.12);
+}
+.script-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+.parse-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.parsed-stack {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+.parsed-card {
+  border: 1px solid #FFD60A;
+  border-radius: 10px;
+  background: #14161c;
+  padding: 0.75rem 0.9rem;
+}
+.parsed-card header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  color: #FFD60A;
+  font-size: 0.75rem;
+}
+.parsed-card header .muted {
+  color: var(--muted);
+}
+.parsed-card p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* —— Pitch script rail (electric yellow active) —— */
+.script-rail {
+  width: min(220px, 28vw);
+  flex-shrink: 0;
+  max-height: min(58vh, 520px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.script-rail-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.script-stack {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-right: 0.25rem;
+  flex: 1;
+}
+.script-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #14161c;
+  padding: 0.55rem 0.65rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 180ms ease-out, box-shadow 180ms ease-out;
+}
+.script-card.active {
+  border-color: #FFD60A;
+  box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.35), 0 0 18px rgba(255, 214, 10, 0.12);
+}
+.script-card.done {
+  opacity: 0.65;
+}
+.script-card-n {
+  display: block;
+  font-size: 0.68rem;
+  color: #FFD60A;
+  margin-bottom: 0.25rem;
+}
+.script-card-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+.script-card-meta {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+@media (max-width: 900px) {
+  .script-rail {
+    display: none;
+  }
+}
+
+/* Audience silence / heckle moods */
+.house-person.mood-confused,
+.house-person.mood-expectant {
+  filter: hue-rotate(-8deg);
+}
+.house-person.mood-restless,
+.house-person.mood-heckle {
+  opacity: 0.9;
+}
+.house-person.is-confused {
+  animation: person-giggle 0.8s ease-in-out 1;
+}
+.house-person.is-sigh {
+  transform: translateY(3px) scale(0.98);
+}
+.house-person.is-watch .phone {
+  opacity: 1;
+}
+.house.house-override {
+  animation: house-ripple 0.85s ease-out;
+}
+.house[data-mood="confused"] .house-glow,
+.house[data-mood="expectant"] .house-glow {
+  background: radial-gradient(
+    ellipse 70% 80% at 50% 100%,
+    rgba(255, 214, 10, 0.14),
+    transparent 70%
+  );
+}
+.house[data-mood="restless"] .house-glow,
+.house[data-mood="heckle"] .house-glow {
+  background: radial-gradient(
+    ellipse 70% 80% at 50% 100%,
+    rgba(229, 83, 60, 0.2),
+    transparent 70%
+  );
+}
+.attention-fill[data-mood="drifting"] {
+  background: #FFD60A;
+}

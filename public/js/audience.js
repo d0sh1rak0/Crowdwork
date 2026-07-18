@@ -174,14 +174,94 @@ export function createAudienceEngine({
   function setPersonMood(member, mood) {
     const { el } = member;
     el.className = `house-person mood-${mood}`;
-    // mouth path by mood
     const mouth = el.querySelector(".mouth");
     if (mouth) {
       if (mood === "locked") mouth.setAttribute("d", "M27 33.5 Q32 37 37 33.5");
-      else if (mood === "listening") mouth.setAttribute("d", "M27 34 Q32 36 37 34");
-      else if (mood === "drifting") mouth.setAttribute("d", "M28 35 H36");
-      else mouth.setAttribute("d", "M27 36 Q32 33 37 36");
+      else if (mood === "listening" || mood === "engaged")
+        mouth.setAttribute("d", "M27 34 Q32 36 37 34");
+      else if (mood === "expectant")
+        mouth.setAttribute("d", "M29 34 Q32 35 35 34");
+      else if (mood === "confused" || mood === "drifting")
+        mouth.setAttribute("d", "M28 35 H36");
+      else if (mood === "restless" || mood === "heckle" || mood === "checked")
+        mouth.setAttribute("d", "M27 36 Q32 33 37 36");
+      else mouth.setAttribute("d", "M28 35 H36");
     }
+    el.classList.toggle(
+      "on-phone",
+      mood === "checked" || mood === "restless" || mood === "heckle"
+    );
+    el.classList.toggle("is-watch", mood === "restless" || mood === "heckle");
+    el.classList.toggle("is-confused", mood === "confused" || mood === "expectant");
+  }
+
+  /** Silence Sentinel — 3s hesitation: ENGAGED → CONFUSED / EXPECTANT */
+  function onHesitationWarning() {
+    attention = clamp(attention - 5);
+    attentionFill.dataset.mood = "drifting";
+    attentionLabel.textContent = "Hesitation";
+    attentionLabel.dataset.mood = "drifting";
+    if (houseEl) houseEl.dataset.mood = "confused";
+    members.forEach((m, i) => {
+      setPersonMood(m, i % 2 === 0 ? "confused" : "expectant");
+      m.restless = Math.min(12, m.restless + 2);
+    });
+    pushReaction("pause", pick(["…", "waiting", "go on?", "hmm"]));
+    roomAudio.setTension(0.55);
+    renderAttention();
+  }
+
+  /**
+   * Gemini / Silence Sentinel priority override.
+   * @param {"RESTLESS"|"HECKLE"|"CONFUSED"|"EXPECTANT"|string} crowdState
+   * @param {{ heckleLine?: string, stageDirection?: string }} [meta]
+   */
+  function applyCrowdState(crowdState, meta = {}) {
+    const state = String(crowdState || "RESTLESS").toUpperCase();
+    const map = {
+      RESTLESS: "restless",
+      HECKLE: "heckle",
+      CONFUSED: "confused",
+      EXPECTANT: "expectant",
+    };
+    const mood = map[state] || "restless";
+
+    if (state === "HECKLE" || state === "RESTLESS") {
+      attention = clamp(attention - (state === "HECKLE" ? 14 : 10));
+      events.pauses += 1;
+      triggerGiggleWave(state === "HECKLE");
+    } else {
+      attention = clamp(attention - 6);
+    }
+
+    if (houseEl) {
+      houseEl.dataset.mood = mood;
+      houseEl.classList.add("house-override");
+      setTimeout(() => houseEl.classList.remove("house-override"), 1800);
+    }
+
+    members.forEach((m, i) => {
+      const local =
+        mood === "heckle"
+          ? i % 3 === 0
+            ? "heckle"
+            : "restless"
+          : mood;
+      setPersonMood(m, local);
+      m.el.classList.add("is-sigh");
+      setTimeout(() => m.el.classList.remove("is-sigh"), 900);
+    });
+
+    if (meta.heckleLine) {
+      pushReaction("lose", meta.heckleLine.slice(0, 42));
+    } else if (meta.stageDirection) {
+      pushReaction("murmur", meta.stageDirection.slice(0, 36));
+    } else {
+      pushReaction("pause", pick(["sigh", "watch check", "restless", "come on"]));
+    }
+
+    roomAudio.setTension(state === "HECKLE" ? 1 : 0.85);
+    renderAttention();
   }
 
   function triggerGiggleWave(strong = false) {
@@ -400,6 +480,8 @@ export function createAudienceEngine({
     onAudioLevel,
     onFillerHit,
     onGoodStretch,
+    onHesitationWarning,
+    applyCrowdState,
     getSnapshot,
     reset,
     start,

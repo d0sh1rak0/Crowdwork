@@ -1,10 +1,12 @@
 import {
   fetchFeedback,
   fetchObjections,
+  requestHeckle,
   toastRetry,
   transcribeAudio,
 } from "./api.js";
 import { createAudienceEngine, createAudioMonitor } from "./audience.js";
+import sessionTimerService from "./services/SessionTimerService.js";
 import {
   getPurposeString,
   getState,
@@ -64,6 +66,9 @@ let recordTimer = null;
 let audioMonitor = null;
 let audience = null;
 let attentionSnapshot = null;
+let heckleAudio = null;
+let heckleInFlight = false;
+let hesitationApplied = false;
 
 function state() {
   return getState();
@@ -207,6 +212,8 @@ function startRun() {
   renderSlide();
   startTimers();
   audience?.start();
+  startSilenceSentinel();
+  renderScriptStack();
 
   if (!micDenied) {
     startRecording();
@@ -216,7 +223,7 @@ function startRun() {
     });
     audioMonitor.resume?.();
   } else {
-    // Without mic, gently decay attention so the meter still feels alive
+    // Without mic, sentinel + gentle decay still animate the room
     const idle = setInterval(() => {
       if (phase !== "running") {
         clearInterval(idle);
@@ -225,6 +232,116 @@ function startRun() {
       if (!paused) audience?.onAudioLevel(0, 200);
     }, 200);
   }
+}
+
+/** Silence Sentinel — independent of MediaRecorder chunk delivery */
+function startSilenceSentinel() {
+  hesitationApplied = false;
+  sessionTimerService.startTracking(
+    (seconds) => {
+      if (phase !== "running" || paused) return;
+      void fireHeckleStrike(seconds);
+    },
+    (seconds, flags) => {
+      if (phase !== "running" || paused) return;
+      if (flags.hesitation && !hesitationApplied) {
+        hesitationApplied = true;
+        audience?.onHesitationWarning();
+      }
+    }
+  );
+}
+
+async function fireHeckleStrike(silenceSeconds) {
+  if (heckleInFlight || phase !== "running") return;
+  heckleInFlight = true;
+  const s = state();
+  const current = s.scriptSlides[index];
+  try {
+    const payload = await requestHeckle({
+      silenceSeconds,
+      language: s.resolvedLanguage,
+      slideScript: current?.script || "",
+      transcript: transcripts[index] || "",
+      deckTitle: s.deckTitle,
+    });
+
+    audience?.applyCrowdState(payload.CROWD_STATE || "RESTLESS", {
+      heckleLine: payload.heckleLine,
+      stageDirection: payload.stageDirection,
+    });
+
+    // Aggressive mid-sentence investor interruption via TTS
+    if (payload.audioBase64) {
+      try {
+        if (heckleAudio) {
+          heckleAudio.pause();
+          heckleAudio = null;
+        }
+        const bytes = Uint8Array.from(atob(payload.audioBase64), (c) =>
+          c.charCodeAt(0)
+        );
+        const url = URL.createObjectURL(
+          new Blob([bytes], { type: "audio/mpeg" })
+        );
+        heckleAudio = new Audio(url);
+        heckleAudio.volume = 0.9;
+        await heckleAudio.play();
+        heckleAudio.onended = () => URL.revokeObjectURL(url);
+      } catch (err) {
+        console.warn("heckle audio", err);
+      }
+    } else if (payload.heckleLine && "speechSynthesis" in window) {
+      const u = new SpeechSynthesisUtterance(payload.heckleLine);
+      u.lang = s.resolvedLanguage === "ru" ? "ru-RU" : "en-US";
+      u.rate = 1.05;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    }
+  } catch (err) {
+    console.warn("heckle strike", err);
+    audience?.applyCrowdState("RESTLESS", {
+      stageDirection: "crowd sighs and checks watches",
+    });
+  } finally {
+    heckleInFlight = false;
+  }
+}
+
+function renderScriptStack() {
+  const stack = document.getElementById("script-stack");
+  if (!stack) return;
+  const s = state();
+  stack.innerHTML = "";
+  s.scriptSlides.forEach((slide, i) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `script-card${i === index ? " active" : ""}${
+      i < index ? " done" : ""
+    }`;
+    card.dataset.n = String(slide.n);
+    card.innerHTML = `
+      <span class="script-card-n font-utility">Slide ${slide.n}</span>
+      <span class="script-card-body">${escapeHtml(slide.script)}</span>
+      <span class="script-card-meta font-utility">${slide.seconds}s</span>`;
+    card.addEventListener("click", () => {
+      // Allow jumping only to current/previous for review feel
+      if (i <= index) {
+        index = i;
+        slideElapsed = slideTimes[i] || 0;
+        renderSlide();
+      }
+    });
+    stack.appendChild(card);
+  });
+}
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function startTimers() {
@@ -271,6 +388,7 @@ function renderSlide() {
   document.getElementById("btn-next").textContent =
     index >= s.scriptSlides.length - 1 ? "Finish pitch" : "Next →";
   updateTimers();
+  renderScriptStack();
 }
 
 function startRecording() {
@@ -312,12 +430,16 @@ async function flushTranscript(finalFlush) {
   try {
     const { text } = await transcribeAudio(blob, state().resolvedLanguage);
     if (!text?.trim()) return;
+
+    // Exact moment valid speech returns — reset Silence Sentinel
+    sessionTimerService.resetSilenceCounter();
+    hesitationApplied = false;
+
     const prev = transcripts[slideIndex] || "";
     transcripts[slideIndex] = (prev + " " + text).trim();
     const words = wordCount(text);
     finalWords += words;
     speakingMs += Math.min(8000, Math.max(400, words * 350));
-    // React to parasite words in this chunk
     noteNewFillers(text);
     if (words >= 8) audience?.onGoodStretch();
   } catch (err) {
@@ -333,6 +455,15 @@ async function stopRecording() {
   audioMonitor?.stop();
   audioMonitor = null;
   audience?.stop();
+  sessionTimerService.stopTracking();
+  if (heckleAudio) {
+    try {
+      heckleAudio.pause();
+    } catch {
+      /* ignore */
+    }
+    heckleAudio = null;
+  }
 
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
     await new Promise((resolve) => {

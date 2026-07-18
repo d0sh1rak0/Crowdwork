@@ -347,6 +347,98 @@ ${deck}`,
     }
   });
 
+  /**
+   * Silence Sentinel critical path — Gemini forces a crowd-state override
+   * and optionally an investor heckle line for TTS.
+   */
+  router.post("/heckle", async (req, res) => {
+    try {
+      const body = req.body || {};
+      const silenceSeconds = Number(body.silenceSeconds) || 5;
+      const language = body.language === "ru" ? "ru" : "en";
+      const langLabel = language === "ru" ? "Russian" : "English";
+      const slideScript = body.slideScript || "";
+      const transcript = body.transcript || "";
+
+      const model = getGeminiModel(
+        `You simulate a live pitch room. Output a single JSON object. No markdown fences.`
+      );
+
+      const parsed = await generateJson(
+        model,
+        [
+          {
+            text: `The presenter went silent for ${silenceSeconds} seconds during a ${langLabel} pitch.
+Slide script: ${slideScript || "(none)"}
+Transcript so far: ${transcript || "(nothing)"}
+
+Return ONLY this JSON shape:
+{"CROWD_STATE":"HECKLE","heckleLine":"short investor interruption max 16 words","stageDirection":"crowd sighs"}
+Use CROWD_STATE HECKLE if silence>=5 else RESTLESS. heckleLine in ${langLabel}.`,
+          },
+        ],
+        { temperature: 0.5, maxOutputTokens: 300 }
+      );
+
+      const state = String(parsed.CROWD_STATE || parsed.crowd_state || "RESTLESS")
+        .toUpperCase()
+        .trim();
+      const allowed = new Set(["RESTLESS", "HECKLE", "CONFUSED", "EXPECTANT"]);
+      const crowdState = allowed.has(state) ? state : "RESTLESS";
+      const heckleLine = String(parsed.heckleLine || parsed.heckle_line || "").trim();
+      const stageDirection = String(
+        parsed.stageDirection || parsed.stage_direction || ""
+      ).trim();
+
+      let audioBase64 = null;
+      if (heckleLine && process.env.OPENAI_API_KEY) {
+        try {
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          let speech;
+          try {
+            speech = await openai.audio.speech.create({
+              model: process.env.OPENAI_TTS_MODEL || "tts-1",
+              voice: language === "ru" ? "nova" : "onyx",
+              input: heckleLine.slice(0, 200),
+              response_format: "mp3",
+            });
+          } catch {
+            speech = await openai.audio.speech.create({
+              model: "tts-1",
+              voice: "onyx",
+              input: heckleLine.slice(0, 200),
+              response_format: "mp3",
+            });
+          }
+          const buf = Buffer.from(await speech.arrayBuffer());
+          audioBase64 = buf.toString("base64");
+        } catch (ttsErr) {
+          console.warn("[heckle tts]", ttsErr.message || ttsErr);
+        }
+      }
+
+      res.json({
+        CROWD_STATE: crowdState,
+        heckleLine,
+        stageDirection,
+        audioBase64,
+      });
+    } catch (err) {
+      console.error("[heckle]", err);
+      // Deterministic fallback so silence never freezes the room
+      res.json({
+        CROWD_STATE: "RESTLESS",
+        heckleLine:
+          req.body?.language === "ru"
+            ? "Мы вас слушаем — продолжайте."
+            : "We're waiting — take us somewhere.",
+        stageDirection: "crowd sighs and checks watches",
+        audioBase64: null,
+        fallback: true,
+      });
+    }
+  });
+
   router.get("/health", (_req, res) => {
     res.json({
       ok: true,

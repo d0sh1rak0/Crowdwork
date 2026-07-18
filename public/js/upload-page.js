@@ -1,5 +1,9 @@
 import { toastRetry } from "./api.js";
 import { processPdf, validatePdfFile } from "./pdf.js";
+import ScriptParserService, {
+  parseScriptToSlides,
+  slidesFromParsedScript,
+} from "./services/ScriptParserService.js";
 import {
   getPurposeString,
   getResolvedLanguage,
@@ -10,6 +14,7 @@ import {
   slidesForApi,
   updateSetup,
 } from "./store.js";
+import { estimateSeconds } from "./utils.js";
 
 const zone = document.getElementById("upload-zone");
 const input = document.getElementById("file-input");
@@ -26,6 +31,10 @@ const notes = document.getElementById("notes");
 const writeBtn = document.getElementById("write-btn");
 const durationsEl = document.getElementById("durations");
 const tonesEl = document.getElementById("tones");
+const scriptPaste = document.getElementById("script-paste");
+const parseBtn = document.getElementById("parse-script-btn");
+const parseMeta = document.getElementById("parse-meta");
+const parsedStack = document.getElementById("parsed-stack");
 
 const DURATIONS = [3, 5, 7, 10, 15, 20];
 const TONES = [
@@ -36,6 +45,12 @@ const TONES = [
 ];
 
 let setup = { ...getState().setup };
+/** @type {null | 'pdf' | 'script'} */
+let materialMode = getState().slides?.some((s) => s.fromScript)
+  ? "script"
+  : getState().slides?.length
+    ? "pdf"
+    : null;
 
 function showError(msg) {
   if (!msg) {
@@ -118,6 +133,9 @@ async function handleFile(file) {
       thumbs.appendChild(el);
     });
     setDeck({ title, slides });
+    materialMode = "pdf";
+    writeBtn.textContent = "Write my script";
+    parsedStack.classList.add("hidden");
     progress.textContent = `${slides.length} slides ready`;
     form.classList.add("visible");
   } catch (err) {
@@ -156,15 +174,87 @@ zone.addEventListener("drop", (e) => {
   handleFile(e.dataTransfer?.files?.[0]);
 });
 
+function renderParsedCards(parsed) {
+  parsedStack.innerHTML = "";
+  if (!parsed.length) {
+    parsedStack.classList.add("hidden");
+    parseMeta.textContent = "";
+    return;
+  }
+  parsedStack.classList.remove("hidden");
+  parseMeta.textContent = `${parsed.length} slides · ${parsed.reduce((a, b) => a + b.wordCount, 0)} words`;
+  parsed.forEach((block) => {
+    const card = document.createElement("article");
+    card.className = "parsed-card";
+    card.innerHTML = `
+      <header>
+        <span class="font-utility">${block.title}</span>
+        <span class="font-utility muted">${block.wordCount} words</span>
+      </header>
+      <p>${block.text.replace(/</g, "&lt;")}</p>`;
+    parsedStack.appendChild(card);
+  });
+}
+
+function applyParsedScript() {
+  const raw = scriptPaste.value;
+  const parsed = parseScriptToSlides(raw);
+  if (!parsed.length) {
+    showError("Paste a script first — or add --- between slides.");
+    return null;
+  }
+  showError(null);
+  const slides = slidesFromParsedScript(parsed, "Pasted script");
+  setDeck({ title: "Pasted script", slides });
+  materialMode = "script";
+
+  // Seed script studio with the pasted words (spoken as-is)
+  const lang = getResolvedLanguage();
+  setScriptSlides(
+    parsed.map((b) => {
+      const seconds = estimateSeconds(b.text, lang) || 30;
+      return {
+        n: b.n,
+        script: b.text,
+        seconds,
+        tip: "Keep it conversational — look up between beats.",
+        originalScript: b.text,
+        originalSeconds: seconds,
+        originalTip: "Keep it conversational — look up between beats.",
+      };
+    })
+  );
+
+  renderParsedCards(parsed);
+  thumbSection.classList.add("hidden");
+  form.classList.add("visible");
+  writeBtn.textContent = "Start pitch with this script";
+  return parsed;
+}
+
+parseBtn.addEventListener("click", () => {
+  applyParsedScript();
+});
+
+let parseTimer = null;
+scriptPaste.addEventListener("input", () => {
+  clearTimeout(parseTimer);
+  parseTimer = setTimeout(() => {
+    const parsed = parseScriptToSlides(scriptPaste.value);
+    if (parsed.length >= 1 && scriptPaste.value.trim().length > 40) {
+      renderParsedCards(parsed);
+    }
+  }, 400);
+});
+
 async function writeScript() {
   const state = getState();
-  if (!state.slides.length) return;
 
   const purposeOk =
     setup.purpose &&
     (setup.purpose !== "Other" || setup.purposeOther.trim().length > 0);
   if (!purposeOk) {
-    showError("Choose a purpose before writing the script.");
+    showError("Choose a purpose before continuing.");
     return;
   }
 
@@ -177,6 +267,21 @@ async function writeScript() {
     targetMinutes: setup.targetMinutes,
     tone: setup.tone,
   });
+
+  // Pasted-script path: already have spoken lines — go pitch (via script studio)
+  if (materialMode === "script" || state.slides.some((s) => s.fromScript)) {
+    if (!state.scriptSlides?.length) {
+      if (!applyParsedScript()) return;
+    }
+    writeBtn.disabled = true;
+    window.location.href = "/script";
+    return;
+  }
+
+  if (!state.slides.length) {
+    showError("Upload a PDF or paste a script first.");
+    return;
+  }
 
   const payload = {
     deckTitle: state.deckTitle,
@@ -209,17 +314,27 @@ form.addEventListener("submit", (e) => {
   writeScript();
 });
 
+// silence unused import warning path
+void ScriptParserService;
+
 // hydrate if deck already in session
 const existing = getState();
 if (existing.slides.length) {
-  thumbSection.classList.remove("hidden");
-  progress.textContent = `${existing.slides.length} slides ready`;
-  existing.slides.forEach((slide) => {
-    const el = document.createElement("div");
-    el.className = "thumb";
-    el.innerHTML = `<img src="${slide.imageDisplay}" alt="Slide ${slide.n}" /><span>${slide.n}</span>`;
-    thumbs.appendChild(el);
-  });
+  const fromScript = existing.slides.some((s) => s.fromScript);
+  materialMode = fromScript ? "script" : "pdf";
+  if (fromScript) {
+    writeBtn.textContent = "Start pitch with this script";
+    thumbSection.classList.add("hidden");
+  } else {
+    thumbSection.classList.remove("hidden");
+    progress.textContent = `${existing.slides.length} slides ready`;
+    existing.slides.forEach((slide) => {
+      const el = document.createElement("div");
+      el.className = "thumb";
+      el.innerHTML = `<img src="${slide.imageDisplay}" alt="Slide ${slide.n}" /><span>${slide.n}</span>`;
+      thumbs.appendChild(el);
+    });
+  }
   form.classList.add("visible");
   purpose.value = existing.setup.purpose || "";
   purposeOther.value = existing.setup.purposeOther || "";

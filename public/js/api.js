@@ -58,6 +58,17 @@ export async function speakText(text, language) {
   return res.blob();
 }
 
+/** Silence Sentinel → Gemini crowd override (+ optional heckle TTS). */
+export async function requestHeckle(payload) {
+  const res = await fetch("/api/heckle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 export function toastRetry(message, retryFn) {
   toast(message, {
     action: {

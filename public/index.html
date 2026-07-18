@@ -44,6 +44,32 @@
       </div>
       <p id="upload-error" class="error-inline hidden" role="alert"></p>
 
+      <div class="or-divider" aria-hidden="true"><span>or</span></div>
+
+      <section class="script-import" id="script-import">
+        <label class="field" for="script-paste">Paste your full script</label>
+        <textarea
+          id="script-paste"
+          class="textarea script-paste"
+          rows="8"
+          placeholder="Paste the whole talk. Use --- or [Slide] between sections — or just paste continuously and we’ll split every ~120 words.
+
+Example:
+Hook and problem…
+---
+Solution and demo…
+---
+The ask."
+        ></textarea>
+        <div class="script-import-actions">
+          <button id="parse-script-btn" class="btn btn-outline" type="button">
+            Split into slides
+          </button>
+          <span id="parse-meta" class="parse-meta font-utility"></span>
+        </div>
+        <div id="parsed-stack" class="parsed-stack hidden"></div>
+      </section>
+
       <section id="thumb-section" class="thumb-grid hidden">
         <p id="progress" class="progress font-utility"></p>
         <div id="thumbs" class="thumbs"></div>
