@@ -1,15 +1,3 @@
-import OpenAI from "openai";
-
-export function getOpenAI() {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) {
-    throw new Error(
-      "OPENAI_API_KEY is not set. Add it in your Vercel project environment."
-    );
-  }
-  return new OpenAI({ apiKey: key });
-}
-
 export const SCRIPT_SYSTEM_PROMPT = `You are an expert speechwriter and pitch coach. You turn slide decks into scripts people actually say out loud.
 
 Rules:
@@ -23,21 +11,20 @@ Rules:
 
 export const FEEDBACK_SYSTEM_PROMPT = `You are an honest, specific, kind pitch coach. Ground every point in the transcript-vs-script and timing data provided — name slide numbers. Respond in the script's language. Output STRICT JSON only with keys: summary (one line), strengths (exactly 3 strings), improvements (exactly 3 strings). No markdown, no commentary.`;
 
-export function stripDataUrl(image?: string): string | undefined {
-  if (!image) return undefined;
-  const idx = image.indexOf("base64,");
-  if (idx >= 0) return image.slice(idx + 7);
-  return image;
+export const OBJECTIONS_SYSTEM_PROMPT = `You are a sharp investor / judge who asks tough but fair questions. Based on the pitch script and (if present) rehearsal transcripts, generate probing questions and objections. Output STRICT JSON only:
+{
+  "questions": [
+    { "n": 1, "question": "...", "whyItMatters": "...", "slideHint": 3 }
+  ]
 }
+Return exactly 5 items. Respond in the script's language. No markdown.`;
 
-export function parseJsonLoose<T>(raw: string): T {
-  const trimmed = raw.trim();
+export function parseJsonLoose(raw) {
+  const trimmed = String(raw || "").trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = fenced ? fenced[1].trim() : trimmed;
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    throw new Error("Model response was not JSON.");
-  }
-  return JSON.parse(candidate.slice(start, end + 1)) as T;
+  if (start === -1 || end === -1) throw new Error("Model response was not JSON.");
+  return JSON.parse(candidate.slice(start, end + 1));
 }

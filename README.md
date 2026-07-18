@@ -1,43 +1,58 @@
 # Crowdwork
 
-Turn a PDF deck into a spoken script, then rehearse it under the lights — with timing, optional voice tracking, and AI coaching.
+Turn a PDF deck into a spoken script, then rehearse it under the lights — with timing, Whisper voice tracking, TTS playback, tough questions, and AI coaching.
 
 ## Stack
 
-- Next.js (App Router) + Tailwind CSS
-- pdfjs-dist (client-side PDF → images + text)
-- Zustand (in-memory session state)
-- OpenAI (script generation + rehearsal feedback)
+- **Frontend:** HTML / CSS / vanilla JavaScript (ES modules)
+- **Backend:** Express (`server.mjs`)
+- **PDF:** pdf.js (CDN, client-side)
+- **Gemini 2.5 Flash** — script generation + rehearsal feedback
+- **Groq Whisper** — speech-to-text during rehearsal
+- **Groq LLM** — questioning / objections
+- **OpenAI** — text-to-speech (“Play voice”)
 
 ## Setup
 
 ```bash
 npm install
 cp .env.example .env.local
-# add OPENAI_API_KEY
+# fill in API keys
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## Deploy (Vercel)
+### Environment
 
-1. Push the repo and import into Vercel.
-2. Set `OPENAI_API_KEY` in project environment variables.
-3. Deploy.
+| Variable | Purpose |
+|----------|---------|
+| `GEMINI_API_KEY` | Script + feedback |
+| `GROQ_WHISPER_API_KEY` | Rehearsal transcription |
+| `GROQ_LLM_API_KEY` | Tough questions / objections |
+| `OPENAI_API_KEY` | TTS playback |
 
-## Routes
+Never commit `.env.local`.
+
+## Pages
 
 | Path | Role |
 |------|------|
-| `/` | Upload PDF, process slides, setup form |
-| `/script` | Edit / regenerate scripts, live time estimate |
+| `/` | Upload PDF + setup form |
+| `/script` | Edit scripts, regenerate, play voice |
 | `/rehearse` | Fullscreen rehearsal + report |
-| `POST /api/generate-script` | AI speechwriter |
-| `POST /api/feedback` | AI coach notes after a run |
 
-## Notes
+## API
 
-- Session state is memory-only. Refresh asks for confirmation when a deck is loaded.
-- Mic is optional; rehearsal works with timers alone if denied or unsupported.
-- UI copy is English; generated scripts and speech recognition support English and Russian.
+- `POST /api/generate-script`
+- `POST /api/feedback`
+- `POST /api/objections`
+- `POST /api/transcribe` (multipart audio)
+- `POST /api/speak` (returns MP3)
+- `GET /api/health`
+
+## Deploy (Vercel)
+
+1. Import the repo.
+2. Set the four API keys as project environment variables.
+3. Deploy (`vercel.json` routes traffic through `server.mjs`).

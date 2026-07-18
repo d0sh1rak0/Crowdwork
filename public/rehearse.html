@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rehearsal — Crowdwork</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/app.css" />
+    <link rel="icon" href="/logo.svg" />
+  </head>
+  <body>
+    <!-- Pre-roll / stage -->
+    <div id="stage-root" class="stage">
+      <div id="countdown-view">
+        <div id="dim" class="stage-dim"></div>
+        <div class="countdown-wrap">
+          <p id="countdown-text" class="countdown-text">Setting the stage…</p>
+          <p id="mic-note" class="hidden" style="margin-top: 1.5rem; color: var(--muted); font-size: 0.875rem">
+            Rehearsing without voice tracking
+          </p>
+        </div>
+      </div>
+
+      <div id="run-view" class="hidden" style="flex: 1; display: none; flex-direction: column">
+        <div id="mic-banner" class="mic-banner hidden">Rehearsing without voice tracking</div>
+        <div id="timer-total" class="timer-total">0:00 / 0:00</div>
+        <div class="stage-content">
+          <div class="stage-slide">
+            <img id="stage-img" alt="Current slide" />
+            <div class="budget-bar"><div id="budget-fill" class="budget-fill"></div></div>
+            <p id="budget-label" class="budget-label"></p>
+          </div>
+          <p id="stage-script" class="stage-script"></p>
+        </div>
+        <div id="controls" class="stage-controls">
+          <button id="btn-prev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
+          <button id="btn-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
+          <button id="btn-restart" class="btn btn-ghost btn-sm" type="button">Restart</button>
+          <button id="btn-next" class="btn btn-primary btn-sm" type="button">Next →</button>
+          <button id="btn-exit" class="btn btn-outline btn-sm" type="button">Exit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Report -->
+    <div id="report-root" class="hidden">
+      <header class="site-header">
+        <a class="brand" href="/">
+          <img src="/logo.svg" alt="" width="28" height="28" />
+          Crowdwork
+        </a>
+      </header>
+      <main class="report">
+        <h1 id="verdict" class="verdict"></h1>
+
+        <h2 class="section-title">Per-slide timing</h2>
+        <div id="timing-bars"></div>
+        <div id="slide-detail" class="hidden" style="margin-top: 1rem; border: 1px solid var(--border); background: var(--surface); padding: 1rem"></div>
+
+        <div class="stats" style="margin-top: 2.5rem">
+          <div class="stat-card">
+            <p class="label">WPM</p>
+            <p id="stat-wpm" class="value">—</p>
+          </div>
+          <div class="stat-card">
+            <p class="label">Fillers</p>
+            <div id="stat-fillers"></div>
+          </div>
+          <div class="stat-card" style="grid-column: 1 / -1">
+            <p class="label">Slides over budget</p>
+            <p id="stat-over" class="value">0</p>
+          </div>
+        </div>
+
+        <section class="coach-card">
+          <h2>AI coach</h2>
+          <div id="coach-body" style="margin-top: 1rem"></div>
+        </section>
+
+        <section class="objections">
+          <h2 class="section-title" style="margin-top: 0">Tough questions</h2>
+          <div id="objections-body">
+            <div class="skeleton" style="height: 72px; margin-bottom: 0.5rem"></div>
+          </div>
+        </section>
+
+        <div class="action-row" style="margin-top: 2.5rem">
+          <button id="btn-again" class="btn btn-primary" type="button">Rehearse again</button>
+          <button id="btn-back-script" class="btn btn-outline" type="button">Back to script</button>
+          <button id="btn-new" class="btn btn-ghost" type="button">New deck</button>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/js/rehearse-page.js"></script>
+  </body>
+</html>

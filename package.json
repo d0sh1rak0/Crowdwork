@@ -2,30 +2,19 @@
   "name": "crowdwork",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "dev": "node --watch server.mjs",
+    "start": "node server.mjs",
+    "build": "node -e \"console.log('Static HTML/CSS/JS app — no compile step')\""
   },
   "dependencies": {
-    "clsx": "^2.1.1",
-    "next": "16.2.10",
-    "openai": "^6.48.0",
-    "pdfjs-dist": "^6.1.200",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "sonner": "^2.0.7",
-    "zustand": "^5.0.14"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.10",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "groq-sdk": "^0.30.0",
+    "multer": "^2.0.2",
+    "openai": "^6.48.0"
   }
 }
