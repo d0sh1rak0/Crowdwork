@@ -5,6 +5,8 @@ Rules:
 - Slide 1 opens with a hook — a question, a sharp fact, or a one-line story. The final slide lands the ask or call to action explicitly.
 - Signpost transitions so consecutive slides flow as one talk, not separate captions.
 - Allocate \`seconds\` per slide so the total lands within ±10% of the target duration. Weight content-heavy slides more; section dividers get 5–10 seconds.
+- HARD LENGTH CAP: ~140–160 spoken words per minute of allocated time. Do NOT write essays. Typical slide scripts are 2–5 short sentences (about 40–120 words) unless the slide owns a large time budget.
+- Never invent extra slides. Return exactly one JSON object per requested slide, then stop.
 - Match the requested tone and write the script entirely in the requested language.
 - \`tip\` is one short practical delivery note per slide: where to pause, what to emphasize, when to look up from the screen.
 - Output STRICT JSON only, matching the provided schema. No markdown, no commentary.`;

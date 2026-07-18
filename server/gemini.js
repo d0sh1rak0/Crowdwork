@@ -40,37 +40,58 @@ export function slideParts(slide) {
   return parts;
 }
 
-export async function generateJson(model, parts, { temperature, maxOutputTokens } = {}) {
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts }],
-    generationConfig: {
-      temperature: temperature ?? 0.7,
-      maxOutputTokens: maxOutputTokens ?? 8000,
-      responseMimeType: "application/json",
-    },
+function withTimeout(promise, ms, label = "Gemini request") {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s.`)),
+      ms
+    );
   });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+export async function generateJson(
+  model,
+  parts,
+  { temperature, maxOutputTokens, timeoutMs = 75000 } = {}
+) {
+  const config = {
+    temperature: temperature ?? 0.7,
+    maxOutputTokens: maxOutputTokens ?? 8000,
+    responseMimeType: "application/json",
+  };
+
+  const result = await withTimeout(
+    model.generateContent({
+      contents: [{ role: "user", parts }],
+      generationConfig: config,
+    }),
+    timeoutMs,
+    "Script generation"
+  );
   const text = result.response.text();
   try {
     return parseJsonLoose(text);
   } catch {
-    const retry = await model.generateContent({
-      contents: [
-        { role: "user", parts },
-        {
-          role: "user",
-          parts: [
-            {
-              text: "Your previous output was not valid JSON. Return only the JSON object matching the schema.",
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: temperature ?? 0.7,
-        maxOutputTokens: maxOutputTokens ?? 8000,
-        responseMimeType: "application/json",
-      },
-    });
+    const retry = await withTimeout(
+      model.generateContent({
+        contents: [
+          { role: "user", parts },
+          {
+            role: "user",
+            parts: [
+              {
+                text: "Your previous output was not valid JSON. Return only the JSON object matching the schema. Keep each slide script short (spoken length only).",
+              },
+            ],
+          },
+        ],
+        generationConfig: config,
+      }),
+      timeoutMs,
+      "Script generation retry"
+    );
     return parseJsonLoose(retry.response.text());
   }
 }

@@ -58,19 +58,24 @@ function mapScripts(slides) {
 
 async function runPendingGenerate() {
   const raw = sessionStorage.getItem("crowdwork-pending-generate");
-  if (!raw) return false;
-  sessionStorage.removeItem("crowdwork-pending-generate");
+  // Orphaned flag from a refresh mid-request — don't spin forever
+  if (!raw) {
+    if (getState().isGenerating && !hasScript()) setGenerating(false);
+    return false;
+  }
+
   setGenerating(true);
   showLoading();
   try {
     const payload = JSON.parse(raw);
     const data = await generateScript(payload);
+    // Only clear pending after a successful write
+    sessionStorage.removeItem("crowdwork-pending-generate");
     setScriptSlides(mapScripts(data.slides));
     return true;
   } catch (err) {
     setGenerating(false);
     toastRetry(err instanceof Error ? err.message : "Script generation failed.", () => {
-      sessionStorage.setItem("crowdwork-pending-generate", raw);
       runPendingGenerate().then(() => render());
     });
     return false;
@@ -347,7 +352,17 @@ document.getElementById("btn-speak").addEventListener("click", async () => {
     window.location.replace("/");
     return;
   }
-  if (sessionStorage.getItem("crowdwork-pending-generate") || getState().isGenerating) {
+
+  // Clear stuck "Writing…" if a previous tab closed mid-flight
+  if (
+    getState().isGenerating &&
+    !sessionStorage.getItem("crowdwork-pending-generate") &&
+    !hasScript()
+  ) {
+    setGenerating(false);
+  }
+
+  if (sessionStorage.getItem("crowdwork-pending-generate")) {
     showLoading();
     await runPendingGenerate();
   }

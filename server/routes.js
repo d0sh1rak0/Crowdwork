@@ -59,12 +59,27 @@ Only include slides in this batch.`,
   for (const slide of batchSlides) parts.push(...slideParts(slide));
   const parsed = await generateJson(model, parts, {
     temperature: 0.7,
-    maxOutputTokens: 8000,
+    // Cap tokens so the model cannot ramble forever on large decks
+    maxOutputTokens: Math.min(6000, 900 + batchSlides.length * 350),
+    timeoutMs: Math.min(90000, 30000 + batchSlides.length * 4000),
   });
   if (!parsed.slides || !Array.isArray(parsed.slides)) {
     throw new Error("Missing slides array");
   }
   return parsed.slides;
+}
+
+/** Keep spoken scripts pitch-length, not essay-length. */
+function clampSpokenScript(script, seconds) {
+  const text = String(script || "").trim();
+  if (!text) return "";
+  const maxWords = Math.max(40, Math.round((Number(seconds) || 30) * 2.7));
+  const words = text.split(/\s+/);
+  if (words.length <= maxWords) return text;
+  // Prefer cutting at a sentence boundary near the budget
+  const sliced = words.slice(0, maxWords).join(" ");
+  const sentenceCut = sliced.match(/^[\s\S]+?[.!?](?=\s|$)/);
+  return (sentenceCut ? sentenceCut[0] : sliced).trim();
 }
 
 async function regenerateOne(body) {
@@ -134,13 +149,23 @@ export function createApiRouter() {
       }
 
       all = all
-        .map((s) => ({
-          n: Number(s.n),
-          script: String(s.script || ""),
-          seconds: Math.max(1, Math.round(Number(s.seconds) || 30)),
-          tip: String(s.tip || ""),
-        }))
+        .map((s) => {
+          const seconds = Math.max(1, Math.round(Number(s.seconds) || 30));
+          const script = clampSpokenScript(s.script, seconds);
+          return {
+            n: Number(s.n),
+            script,
+            seconds,
+            tip: String(s.tip || "").slice(0, 180),
+          };
+        })
         .sort((a, b) => a.n - b.n);
+
+      // Drop hallucinated extras outside the requested slide set
+      if (!body.regenerate) {
+        const allowed = new Set(body.slides.map((s) => Number(s.n)));
+        all = all.filter((s) => allowed.has(s.n));
+      }
 
       res.json({ slides: all });
     } catch (err) {

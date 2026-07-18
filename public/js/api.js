@@ -9,12 +9,34 @@ async function parseError(res) {
   }
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error("Script generation timed out. Try fewer slides or retry.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function generateScript(payload) {
-  const res = await fetch("/api/generate-script", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  // Large decks + slide images can take a while; hard-cap so UI never spins forever
+  const slideCount = payload?.slides?.length || 1;
+  const timeoutMs = Math.min(180000, 45000 + slideCount * 8000);
+  const res = await fetchWithTimeout(
+    "/api/generate-script",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    timeoutMs
+  );
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
