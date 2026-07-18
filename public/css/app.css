@@ -818,3 +818,256 @@ a:hover {
 .hidden {
   display: none !important;
 }
+
+/* Pitch stage: cam, attention, audience */
+.perm-note {
+  margin-top: 1.25rem;
+  max-width: 22rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.perm-note.warn {
+  color: var(--amber-hi);
+}
+
+.run-view {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  position: relative;
+  min-height: 100vh;
+}
+.run-view.visible {
+  display: flex;
+}
+
+.pitch-layout {
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 3.5rem 1rem 6rem;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+@media (max-width: 860px) {
+  .pitch-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+.pitch-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.pitch-main .stage-slide {
+  width: 100%;
+  max-width: 640px;
+  min-width: 0;
+}
+.pitch-main .stage-script {
+  margin-top: 1.25rem;
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+}
+
+.pitch-side {
+  width: min(240px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.cam-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0a0b0d;
+  box-shadow: 0 0 40px rgba(242, 163, 60, 0.12);
+}
+.cam-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.cam-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.875rem;
+  background: var(--surface);
+}
+
+.audience-block {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  padding: 0.75rem;
+  min-height: 110px;
+}
+.audience-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.audience-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+}
+.audience-member {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.25rem;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 180ms ease-out, transform 180ms ease-out;
+}
+.audience-member .face {
+  font-size: 0.85rem;
+  color: var(--text);
+  opacity: 0.85;
+}
+.audience-member.mood-locked {
+  background: color-mix(in srgb, var(--amber) 45%, var(--border));
+  transform: translateY(-2px);
+}
+.audience-member.mood-listening {
+  background: color-mix(in srgb, var(--amber) 22%, var(--border));
+}
+.audience-member.mood-drifting {
+  background: color-mix(in srgb, var(--muted) 35%, var(--border));
+}
+.audience-member.mood-checked {
+  background: color-mix(in srgb, var(--over) 35%, var(--border));
+  opacity: 0.75;
+}
+
+.reaction-host {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  pointer-events: none;
+}
+.reaction-bubble {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  border: 1px solid var(--border);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+.reaction-bubble.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reaction-bubble.reaction-pause {
+  border-color: color-mix(in srgb, var(--amber-hi) 50%, var(--border));
+  color: var(--amber-hi);
+}
+.reaction-bubble.reaction-filler {
+  border-color: color-mix(in srgb, var(--over) 55%, var(--border));
+  color: #f0a090;
+}
+.reaction-bubble.reaction-recover {
+  border-color: color-mix(in srgb, var(--amber) 50%, var(--border));
+  color: var(--amber);
+}
+
+.attention-panel {
+  position: absolute;
+  top: 3.5rem;
+  left: 1rem;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+.attention-scale {
+  width: 10px;
+  height: 140px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, #000);
+}
+.attention-fill {
+  width: 100%;
+  background: var(--amber);
+  transition: height 180ms ease-out, background-color 180ms ease-out;
+}
+.attention-fill[data-mood="locked"] {
+  background: var(--amber-hi);
+}
+.attention-fill[data-mood="listening"] {
+  background: var(--amber);
+}
+.attention-fill[data-mood="drifting"] {
+  background: #c9a35a;
+}
+.attention-fill[data-mood="checked"] {
+  background: var(--over);
+}
+.attention-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+.attention-title {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.attention-value {
+  font-size: 1.25rem;
+  color: var(--text);
+}
+.attention-label {
+  font-size: 0.75rem;
+  color: var(--amber);
+}
+.attention-label[data-mood="checked"] {
+  color: var(--over);
+}
+.attention-label[data-mood="drifting"] {
+  color: var(--amber-hi);
+}
+
+@media (max-width: 640px) {
+  .attention-panel {
+    top: 2.75rem;
+    left: 0.5rem;
+  }
+  .attention-scale {
+    height: 100px;
+  }
+}

@@ -170,6 +170,11 @@ Transcript: ${s.transcript || "(silent / no speech captured)"}`
         )
         .join("\n\n");
 
+      const att = body.attention;
+      const attentionBlock = att
+        ? `\nAudience attention: avg ${att.averageAttention}/100 (final ${att.attention}, low ${att.lowAttention}). Long pauses: ${att.pauses}. Filler hits during pitch: ${att.fillerHits}.`
+        : "";
+
       const model = getGeminiModel(FEEDBACK_SYSTEM_PROMPT);
       const parsed = await generateJson(
         model,
@@ -177,6 +182,7 @@ Transcript: ${s.transcript || "(silent / no speech captured)"}`
           {
             text: `Target talk length: ${body.targetMinutes} minutes.
 Respond in ${langLabel}.
+${attentionBlock}
 
 Rehearsal data:
 ${slideBlocks}

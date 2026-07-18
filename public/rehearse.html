@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rehearsal — Crowdwork</title>
+    <title>Pitch — Crowdwork</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,23 +20,56 @@
         <div id="dim" class="stage-dim"></div>
         <div class="countdown-wrap">
           <p id="countdown-text" class="countdown-text">Setting the stage…</p>
-          <p id="mic-note" class="hidden" style="margin-top: 1.5rem; color: var(--muted); font-size: 0.875rem">
-            Rehearsing without voice tracking
+          <p id="perm-note" class="perm-note">
+            Allow microphone and camera so the audience can watch you pitch.
+          </p>
+          <p id="mic-note" class="hidden perm-note warn">
+            Pitching without mic / camera — timers only
           </p>
         </div>
       </div>
 
-      <div id="run-view" class="hidden" style="flex: 1; display: none; flex-direction: column">
-        <div id="mic-banner" class="mic-banner hidden">Rehearsing without voice tracking</div>
-        <div id="timer-total" class="timer-total">0:00 / 0:00</div>
-        <div class="stage-content">
-          <div class="stage-slide">
-            <img id="stage-img" alt="Current slide" />
-            <div class="budget-bar"><div id="budget-fill" class="budget-fill"></div></div>
-            <p id="budget-label" class="budget-label"></p>
-          </div>
-          <p id="stage-script" class="stage-script"></p>
+      <div id="run-view" class="run-view hidden">
+        <div id="mic-banner" class="mic-banner hidden">
+          Pitching without mic / camera — timers only
         </div>
+        <div id="timer-total" class="timer-total">0:00 / 0:00</div>
+
+        <!-- Attention meter -->
+        <aside class="attention-panel" aria-label="Audience attention">
+          <div class="attention-scale">
+            <div id="attention-fill" class="attention-fill" style="height: 78%"></div>
+          </div>
+          <div class="attention-meta">
+            <span class="attention-title">Attention</span>
+            <span id="attention-value" class="attention-value font-utility">78</span>
+            <span id="attention-label" class="attention-label" data-mood="listening">Listening</span>
+          </div>
+        </aside>
+
+        <div class="stage-content pitch-layout">
+          <div class="pitch-main">
+            <div class="stage-slide">
+              <img id="stage-img" alt="Current slide" />
+              <div class="budget-bar"><div id="budget-fill" class="budget-fill"></div></div>
+              <p id="budget-label" class="budget-label"></p>
+            </div>
+            <p id="stage-script" class="stage-script"></p>
+          </div>
+
+          <div class="pitch-side">
+            <div class="cam-frame">
+              <video id="cam-video" playsinline autoplay muted></video>
+              <div id="cam-fallback" class="cam-fallback hidden">Camera off</div>
+            </div>
+            <div class="audience-block">
+              <p class="audience-label">Audience</p>
+              <div id="audience-row" class="audience-row" aria-live="polite"></div>
+              <div id="reaction-host" class="reaction-host"></div>
+            </div>
+          </div>
+        </div>
+
         <div id="controls" class="stage-controls">
           <button id="btn-prev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
           <button id="btn-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
@@ -58,11 +91,15 @@
       <main class="report">
         <h1 id="verdict" class="verdict"></h1>
 
-        <h2 class="section-title">Per-slide timing</h2>
-        <div id="timing-bars"></div>
-        <div id="slide-detail" class="hidden" style="margin-top: 1rem; border: 1px solid var(--border); background: var(--surface); padding: 1rem"></div>
-
-        <div class="stats" style="margin-top: 2.5rem">
+        <div class="stats" style="margin-top: 2rem">
+          <div class="stat-card">
+            <p class="label">Avg attention</p>
+            <p id="stat-attention" class="value">—</p>
+          </div>
+          <div class="stat-card">
+            <p class="label">Long pauses</p>
+            <p id="stat-pauses" class="value">0</p>
+          </div>
           <div class="stat-card">
             <p class="label">WPM</p>
             <p id="stat-wpm" class="value">—</p>
@@ -77,6 +114,10 @@
           </div>
         </div>
 
+        <h2 class="section-title">Per-slide timing</h2>
+        <div id="timing-bars"></div>
+        <div id="slide-detail" class="hidden" style="margin-top: 1rem; border: 1px solid var(--border); background: var(--surface); padding: 1rem"></div>
+
         <section class="coach-card">
           <h2>AI coach</h2>
           <div id="coach-body" style="margin-top: 1rem"></div>
@@ -90,7 +131,7 @@
         </section>
 
         <div class="action-row" style="margin-top: 2.5rem">
-          <button id="btn-again" class="btn btn-primary" type="button">Rehearse again</button>
+          <button id="btn-again" class="btn btn-primary" type="button">Pitch again</button>
           <button id="btn-back-script" class="btn btn-outline" type="button">Back to script</button>
           <button id="btn-new" class="btn btn-ghost" type="button">New deck</button>
         </div>

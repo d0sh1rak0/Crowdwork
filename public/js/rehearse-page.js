@@ -4,6 +4,7 @@ import {
   toastRetry,
   transcribeAudio,
 } from "./api.js";
+import { createAudienceEngine, createAudioMonitor } from "./audience.js";
 import {
   getPurposeString,
   getState,
@@ -34,13 +35,16 @@ const stageScript = document.getElementById("stage-script");
 const budgetFill = document.getElementById("budget-fill");
 const budgetLabel = document.getElementById("budget-label");
 const controls = document.getElementById("controls");
+const camVideo = document.getElementById("cam-video");
+const camFallback = document.getElementById("cam-fallback");
 
-let phase = "boot"; // boot | countdown | running | report
+let phase = "boot";
 let index = 0;
 let paused = false;
 let elapsed = 0;
 let slideElapsed = 0;
 let micDenied = false;
+let camDenied = false;
 let countdown = 3;
 let hideTimer = null;
 let raf = 0;
@@ -50,11 +54,16 @@ const slideTimes = [];
 const transcripts = [];
 let speakingMs = 0;
 let finalWords = 0;
+let seenFillers = {};
 
 let mediaStream = null;
+let audioStream = null;
 let mediaRecorder = null;
 let chunks = [];
 let recordTimer = null;
+let audioMonitor = null;
+let audience = null;
+let attentionSnapshot = null;
 
 function state() {
   return getState();
@@ -64,6 +73,25 @@ function showControls() {
   controls.classList.remove("hidden");
   if (hideTimer) clearTimeout(hideTimer);
   hideTimer = setTimeout(() => controls.classList.add("hidden"), 2000);
+}
+
+function initAudience() {
+  audience = createAudienceEngine({
+    attentionFill: document.getElementById("attention-fill"),
+    attentionValue: document.getElementById("attention-value"),
+    attentionLabel: document.getElementById("attention-label"),
+    audienceRow: document.getElementById("audience-row"),
+    reactionHost: document.getElementById("reaction-host"),
+  });
+}
+
+function noteNewFillers(chunk) {
+  const lang = state().resolvedLanguage;
+  const counts = detectFillers(chunk, lang);
+  Object.entries(counts).forEach(([word, n]) => {
+    for (let i = 0; i < n; i++) audience?.onFillerHit(word);
+    seenFillers[word] = (seenFillers[word] || 0) + n;
+  });
 }
 
 async function boot() {
@@ -78,22 +106,61 @@ async function boot() {
     return;
   }
 
+  initAudience();
+
   try {
     await document.documentElement.requestFullscreen();
   } catch {
     /* optional */
   }
 
+  // Request mic + webcam
   if (navigator.mediaDevices?.getUserMedia) {
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micDenied = false;
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+        video: {
+          facingMode: "user",
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+        },
+      });
+      micDenied = mediaStream.getAudioTracks().length === 0;
+      camDenied = mediaStream.getVideoTracks().length === 0;
     } catch {
-      micDenied = true;
-      mediaStream = null;
+      // Try audio-only fallback
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micDenied = false;
+        camDenied = true;
+      } catch {
+        mediaStream = null;
+        micDenied = true;
+        camDenied = true;
+      }
     }
   } else {
     micDenied = true;
+    camDenied = true;
+  }
+
+  if (mediaStream && !camDenied) {
+    camVideo.srcObject = mediaStream;
+    camFallback.classList.add("hidden");
+    try {
+      await camVideo.play();
+    } catch {
+      /* autoplay quirks */
+    }
+  } else {
+    camFallback.classList.remove("hidden");
+  }
+
+  if (mediaStream && !micDenied) {
+    audioStream = new MediaStream(mediaStream.getAudioTracks());
   }
 
   for (let i = 0; i < s.scriptSlides.length; i++) {
@@ -101,8 +168,12 @@ async function boot() {
     transcripts[i] = "";
   }
 
-  if (micDenied) {
+  if (micDenied || camDenied) {
     micNote.classList.remove("hidden");
+    const parts = [];
+    if (micDenied) parts.push("mic");
+    if (camDenied) parts.push("camera");
+    micNote.textContent = `Pitching without ${parts.join(" / ")} — timers still run`;
   }
 
   phase = "countdown";
@@ -128,12 +199,28 @@ function startRun() {
   phase = "running";
   countdownView.classList.add("hidden");
   runView.classList.remove("hidden");
-  runView.style.display = "flex";
-  if (micDenied) micBanner.classList.remove("hidden");
+  runView.classList.add("visible");
+  if (micDenied || camDenied) micBanner.classList.remove("hidden");
   showControls();
   renderSlide();
   startTimers();
-  if (!micDenied) startRecording();
+  if (!micDenied) {
+    startRecording();
+    audioMonitor = createAudioMonitor(audioStream || mediaStream, (level, dt) => {
+      if (phase !== "running" || paused) return;
+      audience?.onAudioLevel(level, dt);
+    });
+    audioMonitor.resume?.();
+  } else {
+    // Without mic, gently decay attention so the meter still feels alive
+    const idle = setInterval(() => {
+      if (phase !== "running") {
+        clearInterval(idle);
+        return;
+      }
+      if (!paused) audience?.onAudioLevel(0, 200);
+    }, 200);
+  }
 }
 
 function startTimers() {
@@ -178,15 +265,16 @@ function renderSlide() {
   stageScript.textContent = current.script;
   document.getElementById("btn-prev").disabled = index === 0;
   document.getElementById("btn-next").textContent =
-    index >= s.scriptSlides.length - 1 ? "Finish run" : "Next →";
+    index >= s.scriptSlides.length - 1 ? "Finish pitch" : "Next →";
   updateTimers();
 }
 
 function startRecording() {
-  if (!mediaStream) return;
+  const stream = audioStream || mediaStream;
+  if (!stream) return;
   chunks = [];
   try {
-    mediaRecorder = new MediaRecorder(mediaStream, {
+    mediaRecorder = new MediaRecorder(stream, {
       mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm",
@@ -201,9 +289,7 @@ function startRecording() {
     if (e.data?.size) chunks.push(e.data);
   };
   mediaRecorder.start(1000);
-
-  // Flush to Whisper every ~8s while on a slide
-  recordTimer = setInterval(() => flushTranscript(false), 8000);
+  recordTimer = setInterval(() => flushTranscript(false), 6000);
 }
 
 async function flushTranscript(finalFlush) {
@@ -227,6 +313,9 @@ async function flushTranscript(finalFlush) {
     const words = wordCount(text);
     finalWords += words;
     speakingMs += Math.min(8000, Math.max(400, words * 350));
+    // React to parasite words in this chunk
+    noteNewFillers(text);
+    if (words >= 8) audience?.onGoodStretch();
   } catch (err) {
     console.warn("transcribe", err);
   }
@@ -237,6 +326,9 @@ async function stopRecording() {
     clearInterval(recordTimer);
     recordTimer = null;
   }
+  audioMonitor?.stop();
+  audioMonitor = null;
+
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
     await new Promise((resolve) => {
       mediaRecorder.onstop = resolve;
@@ -249,10 +341,13 @@ async function stopRecording() {
     await flushTranscript(true);
   }
   mediaRecorder = null;
+
   if (mediaStream) {
     mediaStream.getTracks().forEach((t) => t.stop());
     mediaStream = null;
   }
+  audioStream = null;
+  camVideo.srcObject = null;
 }
 
 async function goNext() {
@@ -280,6 +375,7 @@ async function goPrev() {
 async function finishRun() {
   phase = "report";
   cancelAnimationFrame(raf);
+  attentionSnapshot = audience?.getSnapshot() || null;
   await stopRecording();
   slideTimes[index] = slideElapsed;
 
@@ -311,6 +407,7 @@ async function finishRun() {
     slides,
     speakingSeconds,
     finalWordCount: finalWords,
+    attention: attentionSnapshot,
   };
 
   setRehearsalReport(report);
@@ -350,6 +447,12 @@ function showReport(report) {
   const verdictEl = document.getElementById("verdict");
   verdictEl.textContent = verdict.text;
   verdictEl.classList.toggle("over", verdict.over);
+
+  const att = report.attention;
+  document.getElementById("stat-attention").textContent = att
+    ? `${att.averageAttention}`
+    : "—";
+  document.getElementById("stat-pauses").textContent = String(att?.pauses || 0);
 
   const maxBar = Math.max(
     ...report.slides.map((r, i) =>
@@ -404,7 +507,7 @@ function showSlideDetail(n) {
   const el = document.getElementById("slide-detail");
   el.classList.remove("hidden");
   el.innerHTML = `
-    <div style="display:grid;gap:1rem;grid-template-columns:1fr; ">
+    <div style="display:grid;gap:1rem;">
       ${deck ? `<img src="${deck.imageDisplay}" alt="" style="width:100%;border-radius:4px" />` : ""}
       <div>
         <p style="color:var(--muted);font-size:0.875rem;margin:0 0 0.35rem">Script</p>
@@ -428,6 +531,7 @@ async function loadCoach(report) {
     <div class="skeleton" style="height:16px;width:85%"></div>`;
 
   const s = state();
+  const att = report.attention;
   try {
     const data = await fetchFeedback({
       targetMinutes: s.setup.targetMinutes,
@@ -439,6 +543,7 @@ async function loadCoach(report) {
         actualSeconds: r.actualSeconds,
         targetSeconds: s.scriptSlides[i]?.seconds || 0,
       })),
+      attention: att || undefined,
     });
     setFeedback(data);
     renderCoach(data);
