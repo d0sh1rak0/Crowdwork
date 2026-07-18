@@ -292,13 +292,17 @@ export function RehearsalStage() {
   // Countdown
   useEffect(() => {
     if (phase !== "countdown") return;
-    if (countdown <= 0) {
-      setPhase("running");
-      bumpControls();
-      if (!micDenied) startRecognition();
-      return;
-    }
-    const t = window.setTimeout(() => setCountdown((c) => c - 1), 1000);
+    const t = window.setTimeout(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          setPhase("running");
+          bumpControls();
+          if (!micDenied) startRecognition();
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
     return () => window.clearTimeout(t);
   }, [phase, countdown, micDenied, startRecognition, bumpControls]);
 
