@@ -158,12 +158,11 @@ export function createAudienceEngine({
     const bubble = document.createElement("div");
     bubble.className = `house-bubble reaction-${kind}`;
     bubble.textContent = text;
-    // Spawn near a random restless person
-    const anchor = pick(members).el;
-    const rect = audienceRow.getBoundingClientRect();
-    const aRect = anchor.getBoundingClientRect();
-    bubble.style.left = `${Math.max(8, aRect.left - rect.left + aRect.width / 2 - 18)}px`;
-    bubble.style.bottom = `${rect.bottom - aRect.top + 6}px`;
+    // Spawn above a random person in the house
+    const idx = Math.floor(Math.random() * members.length);
+    const pct = ((idx + 0.5) / members.length) * 100;
+    bubble.style.left = `calc(${pct}% - 18px)`;
+    bubble.style.bottom = `${58 + Math.random() * 28}px`;
     reactionHost.appendChild(bubble);
     requestAnimationFrame(() => bubble.classList.add("show"));
     setTimeout(() => {
