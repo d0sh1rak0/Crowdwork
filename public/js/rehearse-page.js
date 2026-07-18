@@ -82,6 +82,8 @@ function initAudience() {
     attentionLabel: document.getElementById("attention-label"),
     audienceRow: document.getElementById("audience-row"),
     reactionHost: document.getElementById("reaction-host"),
+    houseEl: document.getElementById("house"),
+    memberCount: 12,
   });
 }
 
@@ -204,6 +206,8 @@ function startRun() {
   showControls();
   renderSlide();
   startTimers();
+  audience?.start();
+
   if (!micDenied) {
     startRecording();
     audioMonitor = createAudioMonitor(audioStream || mediaStream, (level, dt) => {
@@ -328,6 +332,7 @@ async function stopRecording() {
   }
   audioMonitor?.stop();
   audioMonitor = null;
+  audience?.stop();
 
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
     await new Promise((resolve) => {
@@ -453,6 +458,8 @@ function showReport(report) {
     ? `${att.averageAttention}`
     : "—";
   document.getElementById("stat-pauses").textContent = String(att?.pauses || 0);
+  const laughsEl = document.getElementById("stat-laughs");
+  if (laughsEl) laughsEl.textContent = String(att?.laughs || 0);
 
   const maxBar = Math.max(
     ...report.slides.map((r, i) =>

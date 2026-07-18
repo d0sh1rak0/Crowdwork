@@ -819,7 +819,8 @@ a:hover {
   display: none !important;
 }
 
-/* Pitch stage: cam, attention, audience */
+
+/* Pitch stage: cam, attention, living house audience */
 .perm-note {
   margin-top: 1.25rem;
   max-width: 22rem;
@@ -843,13 +844,15 @@ a:hover {
 
 .pitch-layout {
   flex-direction: row;
-  align-items: stretch;
+  align-items: flex-start;
   justify-content: center;
-  gap: 1.5rem;
-  padding: 3.5rem 1rem 6rem;
+  gap: 1.25rem;
+  padding: 3.25rem 1rem 0;
   width: 100%;
   max-width: 1100px;
   margin: 0 auto;
+  flex: 1;
+  z-index: 10;
 }
 @media (max-width: 860px) {
   .pitch-layout {
@@ -867,16 +870,18 @@ a:hover {
 }
 .pitch-main .stage-slide {
   width: 100%;
-  max-width: 640px;
+  max-width: 620px;
   min-width: 0;
 }
 .pitch-main .stage-script {
-  margin-top: 1.25rem;
-  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  font-size: clamp(1rem, 1.8vw, 1.25rem);
+  max-width: 40rem;
 }
 
 .pitch-side {
-  width: min(240px, 100%);
+  width: min(180px, 100%);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -910,92 +915,197 @@ a:hover {
   background: var(--surface);
 }
 
-.audience-block {
+/* —— The house (living audience) —— */
+.house {
   position: relative;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 85%, transparent);
-  padding: 0.75rem;
-  min-height: 110px;
+  z-index: 12;
+  margin-top: auto;
+  padding: 0.5rem 1rem 5.5rem;
+  min-height: 170px;
+  background:
+    linear-gradient(to top, rgba(8, 8, 10, 0.96) 40%, rgba(16, 17, 19, 0.2) 100%);
+  --room-energy: 0.2;
 }
-.audience-label {
-  margin: 0 0 0.5rem;
-  font-size: 0.75rem;
+.house-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: -20% 10% auto;
+  height: 120px;
+  background: radial-gradient(
+    ellipse 70% 80% at 50% 100%,
+    rgba(242, 163, 60, calc(0.08 + var(--room-energy) * 0.12)),
+    transparent 70%
+  );
+  transition: opacity 300ms ease-out;
+}
+.house[data-mood="checked"] .house-glow {
+  background: radial-gradient(
+    ellipse 70% 80% at 50% 100%,
+    rgba(229, 83, 60, 0.18),
+    transparent 70%
+  );
+}
+.house-rail {
+  height: 3px;
+  margin: 0 auto 0.65rem;
+  max-width: 920px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--amber) 35%, var(--border)),
+    transparent
+  );
+  opacity: 0.7;
+}
+.house-caption {
+  margin: 0 auto 0.4rem;
+  max-width: 920px;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
 }
-.audience-row {
+.house-row {
+  position: relative;
   display: flex;
-  justify-content: space-between;
-  gap: 0.25rem;
-}
-.audience-member {
-  flex: 1;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  height: 2.25rem;
-  border-radius: 999px;
-  background: var(--border);
-  transition: background 180ms ease-out, transform 180ms ease-out;
+  align-items: flex-end;
+  gap: clamp(0.15rem, 1.2vw, 0.55rem);
+  max-width: 960px;
+  margin: 0 auto;
+  min-height: 96px;
+  padding: 0 0.25rem;
 }
-.audience-member .face {
-  font-size: 0.85rem;
-  color: var(--text);
-  opacity: 0.85;
-}
-.audience-member.mood-locked {
-  background: color-mix(in srgb, var(--amber) 45%, var(--border));
-  transform: translateY(-2px);
-}
-.audience-member.mood-listening {
-  background: color-mix(in srgb, var(--amber) 22%, var(--border));
-}
-.audience-member.mood-drifting {
-  background: color-mix(in srgb, var(--muted) 35%, var(--border));
-}
-.audience-member.mood-checked {
-  background: color-mix(in srgb, var(--over) 35%, var(--border));
-  opacity: 0.75;
+.house-reactions {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
 }
 
-.reaction-host {
-  position: absolute;
-  left: 0.5rem;
-  right: 0.5rem;
-  bottom: 0.4rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  pointer-events: none;
+.house-person {
+  position: relative;
+  width: clamp(44px, 6.5vw, 64px);
+  transform-origin: 50% 100%;
+  animation: person-breathe var(--idle-dur, 3.5s) ease-in-out infinite;
+  animation-delay: var(--idle-delay, 0s);
+  transition: transform 200ms ease-out, filter 200ms ease-out;
 }
-.reaction-bubble {
-  align-self: flex-start;
-  max-width: 100%;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.7rem;
+.house-person .person-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.house-person .phone {
+  transition: opacity 180ms ease-out;
+}
+.house-person.on-phone .phone {
+  opacity: 1;
+}
+.house-person .laugh-marks {
+  transition: opacity 160ms ease-out;
+}
+.house-person.is-giggling .laugh-marks,
+.house-person.is-laughing .laugh-marks {
+  opacity: 1;
+}
+.house-person.is-giggling {
+  animation: person-giggle 0.35s ease-in-out 3;
+}
+.house-person.is-laughing {
+  animation: person-laugh 0.45s ease-in-out 4;
+}
+.house-person.is-leaning {
+  transform: translateY(-4px) scale(1.03);
+}
+.house-person.is-shift {
+  transform: translateX(3px) rotate(1.5deg);
+}
+.house-person.mood-locked {
+  filter: drop-shadow(0 0 6px rgba(255, 196, 107, 0.35));
+}
+.house-person.mood-drifting {
+  opacity: 0.92;
+}
+.house-person.mood-checked {
+  opacity: 0.85;
+  filter: saturate(0.75);
+}
+
+.house-bubble {
+  position: absolute;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
   color: var(--text);
-  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   border: 1px solid var(--border);
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(6px) scale(0.96);
   transition: opacity 180ms ease-out, transform 180ms ease-out;
+  white-space: nowrap;
+  z-index: 5;
 }
-.reaction-bubble.show {
+.house-bubble.show {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
-.reaction-bubble.reaction-pause {
-  border-color: color-mix(in srgb, var(--amber-hi) 50%, var(--border));
+.house-bubble.reaction-lose {
+  border-color: color-mix(in srgb, var(--amber-hi) 55%, var(--border));
   color: var(--amber-hi);
 }
-.reaction-bubble.reaction-filler {
+.house-bubble.reaction-filler {
   border-color: color-mix(in srgb, var(--over) 55%, var(--border));
   color: #f0a090;
 }
-.reaction-bubble.reaction-recover {
+.house-bubble.reaction-pause {
+  color: var(--muted);
+}
+.house-bubble.reaction-recover {
   border-color: color-mix(in srgb, var(--amber) 50%, var(--border));
   color: var(--amber);
+}
+
+.house.house-titter .house-row {
+  animation: house-ripple 0.7s ease-out;
+}
+.house.house-roar .house-row {
+  animation: house-ripple 0.9s ease-out;
+}
+.house.house-roar .house-glow {
+  opacity: 1.4;
+}
+
+@keyframes person-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes person-giggle {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(-4deg) translateY(-2px); }
+  75% { transform: rotate(4deg) translateY(-1px); }
+}
+@keyframes person-laugh {
+  0%, 100% { transform: rotate(0) scale(1); }
+  30% { transform: rotate(-6deg) scale(1.05) translateY(-3px); }
+  60% { transform: rotate(6deg) scale(1.04) translateY(-2px); }
+}
+@keyframes house-ripple {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .house-person,
+  .house-person.is-giggling,
+  .house-person.is-laughing,
+  .house.house-titter .house-row,
+  .house.house-roar .house-row {
+    animation: none !important;
+  }
 }
 
 .attention-panel {
@@ -1023,18 +1133,10 @@ a:hover {
   background: var(--amber);
   transition: height 180ms ease-out, background-color 180ms ease-out;
 }
-.attention-fill[data-mood="locked"] {
-  background: var(--amber-hi);
-}
-.attention-fill[data-mood="listening"] {
-  background: var(--amber);
-}
-.attention-fill[data-mood="drifting"] {
-  background: #c9a35a;
-}
-.attention-fill[data-mood="checked"] {
-  background: var(--over);
-}
+.attention-fill[data-mood="locked"] { background: var(--amber-hi); }
+.attention-fill[data-mood="listening"] { background: var(--amber); }
+.attention-fill[data-mood="drifting"] { background: #c9a35a; }
+.attention-fill[data-mood="checked"] { background: var(--over); }
 .attention-meta {
   display: flex;
   flex-direction: column;
@@ -1055,19 +1157,20 @@ a:hover {
   font-size: 0.75rem;
   color: var(--amber);
 }
-.attention-label[data-mood="checked"] {
-  color: var(--over);
-}
-.attention-label[data-mood="drifting"] {
-  color: var(--amber-hi);
-}
+.attention-label[data-mood="checked"] { color: var(--over); }
+.attention-label[data-mood="drifting"] { color: var(--amber-hi); }
 
 @media (max-width: 640px) {
   .attention-panel {
     top: 2.75rem;
     left: 0.5rem;
   }
-  .attention-scale {
-    height: 100px;
-  }
+  .attention-scale { height: 100px; }
+  .house { min-height: 140px; padding-bottom: 5rem; }
+  .pitch-side { width: min(120px, 34vw); align-self: flex-end; margin-right: 0.5rem; }
+}
+
+/* Keep stage controls above the house */
+.run-view .stage-controls {
+  z-index: 30;
 }

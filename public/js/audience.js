@@ -1,29 +1,69 @@
-/** Live attention meter + audience reactions to pauses and parasite words. */
+/** Living house audience — idle motion, laughs when you lose the room. */
 
-const MOODS = ["locked", "listening", "drifting", "checked"];
+import { createRoomAudio } from "./room-audio.js";
+
+const NAMES = [
+  "Alex",
+  "Sam",
+  "Jordan",
+  "Riley",
+  "Casey",
+  "Morgan",
+  "Quinn",
+  "Avery",
+  "Drew",
+  "Sage",
+  "Reese",
+  "Blake",
+];
+
+const SKIN_TONES = [
+  "#c4a484",
+  "#dbb896",
+  "#8d5524",
+  "#e0ac69",
+  "#a67c52",
+  "#f1c27d",
+  "#6b3f2a",
+  "#ffdbac",
+];
+const SHIRTS = [
+  "#2a2d33",
+  "#3a3028",
+  "#243044",
+  "#35282e",
+  "#2c3326",
+  "#403528",
+  "#1e2430",
+];
 
 const REACTIONS = {
   pause: [
-    "They're waiting…",
-    "Silence stretches",
-    "Someone glances at their phone",
-    "A few seats shift",
-    "Eyes wander",
+    "…",
+    "waiting",
+    "phone check",
+    "hmm",
   ],
   filler: [
-    "Heard a filler",
-    "That “um” landed",
-    "Parasite word spotted",
-    "Audience winces",
-    "Focus dips",
+    "um?",
+    "heh",
+    "ouch",
+    "again?",
+  ],
+  lose: [
+    "hehe",
+    "ha",
+    "lol",
+    "giggle",
+    "lost them",
   ],
   recover: [
-    "They're back with you",
-    "Heads lift",
-    "Good pace",
-    "Room leans in",
+    "shhh",
+    "back",
+    "listening",
+    "ok go",
   ],
-  speak: ["Listening", "With you", "Locked in"],
+  murmur: ["whisper", "…", "side chat"],
 };
 
 function pick(list) {
@@ -37,17 +77,24 @@ function moodFromAttention(score) {
   return "checked";
 }
 
-function faceForMood(mood) {
-  switch (mood) {
-    case "locked":
-      return "◉";
-    case "listening":
-      return "◍";
-    case "drifting":
-      return "◌";
-    default:
-      return "·";
-  }
+function personSVG(skin, shirt) {
+  return `
+    <svg class="person-svg" viewBox="0 0 64 80" aria-hidden="true">
+      <ellipse class="shoulder" cx="32" cy="62" rx="22" ry="14" fill="${shirt}"/>
+      <circle class="head" cx="32" cy="28" r="14" fill="${skin}"/>
+      <g class="eyes">
+        <ellipse cx="27" cy="27" rx="1.6" ry="2" fill="#1a1208"/>
+        <ellipse cx="37" cy="27" rx="1.6" ry="2" fill="#1a1208"/>
+      </g>
+      <path class="mouth" d="M27 34 Q32 36 37 34" fill="none" stroke="#1a1208" stroke-width="1.4" stroke-linecap="round"/>
+      <g class="phone" opacity="0">
+        <rect x="40" y="44" width="8" height="14" rx="1.5" fill="#111"/>
+        <rect x="41" y="45.5" width="6" height="9" rx="0.5" fill="#3a4a5a"/>
+      </g>
+      <g class="laugh-marks" opacity="0">
+        <text x="46" y="22" font-size="10" fill="#F2A33C">ha</text>
+      </g>
+    </svg>`;
 }
 
 export function createAudienceEngine({
@@ -56,26 +103,46 @@ export function createAudienceEngine({
   attentionLabel,
   audienceRow,
   reactionHost,
-  memberCount = 7,
+  houseEl,
+  memberCount = 12,
 }) {
   let attention = 78;
   let silenceMs = 0;
   let speakingMsWindow = 0;
   let lastReactionAt = 0;
   let lastRecoverAt = 0;
+  let lastLoseAt = 0;
   let pauseLatched = false;
   let samples = [];
-  let events = { pauses: 0, fillers: 0 };
+  let events = { pauses: 0, fillers: 0, laughs: 0 };
+  let prevMood = "listening";
+  let lifeTimer = null;
+  const roomAudio = createRoomAudio();
 
-  // Build audience seats
   audienceRow.innerHTML = "";
+  if (houseEl) houseEl.dataset.mood = "listening";
+
   const members = [];
   for (let i = 0; i < memberCount; i++) {
     const el = document.createElement("div");
-    el.className = "audience-member mood-listening";
-    el.innerHTML = `<span class="face">${faceForMood("listening")}</span>`;
+    const skin = SKIN_TONES[i % SKIN_TONES.length];
+    const shirt = SHIRTS[i % SHIRTS.length];
+    const name = NAMES[i % NAMES.length];
+    const delay = (i * 0.17).toFixed(2);
+    el.className = "house-person mood-listening";
+    el.style.setProperty("--idle-delay", `${delay}s`);
+    el.style.setProperty("--idle-dur", `${3.2 + (i % 5) * 0.35}s`);
+    el.dataset.name = name;
+    el.innerHTML = `
+      ${personSVG(skin, shirt)}
+      <span class="person-chip" hidden>${name}</span>
+    `;
     audienceRow.appendChild(el);
-    members.push(el);
+    members.push({
+      el,
+      bias: ((i % 5) - 2) * 4,
+      restless: 0,
+    });
   }
 
   function clamp(n) {
@@ -84,21 +151,71 @@ export function createAudienceEngine({
 
   function pushReaction(kind, detail) {
     const now = performance.now();
-    if (now - lastReactionAt < 900) return;
+    if (now - lastReactionAt < 700) return;
     lastReactionAt = now;
-    const text =
-      detail ||
-      pick(REACTIONS[kind] || REACTIONS.speak);
+    const text = detail || pick(REACTIONS[kind] || REACTIONS.murmur);
 
     const bubble = document.createElement("div");
-    bubble.className = `reaction-bubble reaction-${kind}`;
+    bubble.className = `house-bubble reaction-${kind}`;
     bubble.textContent = text;
+    // Spawn near a random restless person
+    const anchor = pick(members).el;
+    const rect = audienceRow.getBoundingClientRect();
+    const aRect = anchor.getBoundingClientRect();
+    bubble.style.left = `${Math.max(8, aRect.left - rect.left + aRect.width / 2 - 18)}px`;
+    bubble.style.bottom = `${rect.bottom - aRect.top + 6}px`;
     reactionHost.appendChild(bubble);
     requestAnimationFrame(() => bubble.classList.add("show"));
     setTimeout(() => {
       bubble.classList.remove("show");
-      setTimeout(() => bubble.remove(), 220);
-    }, 2200);
+      setTimeout(() => bubble.remove(), 240);
+    }, 1800);
+  }
+
+  function setPersonMood(member, mood) {
+    const { el } = member;
+    el.className = `house-person mood-${mood}`;
+    // mouth path by mood
+    const mouth = el.querySelector(".mouth");
+    if (mouth) {
+      if (mood === "locked") mouth.setAttribute("d", "M27 33.5 Q32 37 37 33.5");
+      else if (mood === "listening") mouth.setAttribute("d", "M27 34 Q32 36 37 34");
+      else if (mood === "drifting") mouth.setAttribute("d", "M28 35 H36");
+      else mouth.setAttribute("d", "M27 36 Q32 33 37 36");
+    }
+  }
+
+  function triggerGiggleWave(strong = false) {
+    const now = performance.now();
+    if (now - lastLoseAt < (strong ? 2200 : 1600)) return;
+    lastLoseAt = now;
+    events.laughs += 1;
+
+    const count = strong
+      ? 4 + Math.floor(Math.random() * 4)
+      : 2 + Math.floor(Math.random() * 3);
+    const shuffled = [...members].sort(() => Math.random() - 0.5).slice(0, count);
+
+    shuffled.forEach((m, i) => {
+      setTimeout(() => {
+        m.el.classList.add(strong ? "is-laughing" : "is-giggling");
+        pushReaction("lose", strong ? pick(["ha", "hah", "lol"]) : pick(["heh", "hehe", "hih"]));
+        setTimeout(() => {
+          m.el.classList.remove("is-laughing", "is-giggling");
+        }, strong ? 1400 : 900);
+      }, i * (120 + Math.random() * 160));
+    });
+
+    if (strong) roomAudio.laugh();
+    else roomAudio.giggle();
+
+    if (houseEl) {
+      houseEl.classList.add(strong ? "house-roar" : "house-titter");
+      setTimeout(
+        () => houseEl.classList.remove("house-roar", "house-titter"),
+        strong ? 1200 : 800
+      );
+    }
   }
 
   function renderAttention() {
@@ -114,50 +231,106 @@ export function createAudienceEngine({
       locked: "Locked in",
       listening: "Listening",
       drifting: "Drifting",
-      checked: "Checked out",
+      checked: "Lost the room",
     };
     attentionLabel.textContent = labels[mood];
     attentionLabel.dataset.mood = mood;
 
-    members.forEach((el, i) => {
-      // Stagger moods slightly so the row feels alive
-      const jitter = ((i % 3) - 1) * 6;
-      const localMood = moodFromAttention(attention + jitter);
-      el.className = `audience-member mood-${localMood}`;
-      el.querySelector(".face").textContent = faceForMood(localMood);
+    if (houseEl) {
+      houseEl.dataset.mood = mood;
+      houseEl.style.setProperty("--room-energy", String((100 - attention) / 100));
+    }
+
+    // Tension for ambient murmur
+    const tension =
+      mood === "checked" ? 0.9 : mood === "drifting" ? 0.55 : mood === "listening" ? 0.2 : 0.08;
+    roomAudio.setTension(tension);
+
+    members.forEach((m) => {
+      const local = moodFromAttention(attention + m.bias - m.restless);
+      setPersonMood(m, local);
+      m.el.classList.toggle("on-phone", local === "checked" || (local === "drifting" && m.restless > 4));
     });
+
+    // Crossing into lose-the-room triggers laughs
+    if (mood === "checked" && prevMood !== "checked") {
+      triggerGiggleWave(true);
+    } else if (mood === "drifting" && prevMood === "listening") {
+      // early restless giggles
+      if (Math.random() < 0.55) triggerGiggleWave(false);
+    } else if (
+      (mood === "listening" || mood === "locked") &&
+      (prevMood === "drifting" || prevMood === "checked")
+    ) {
+      const now = performance.now();
+      if (now - lastRecoverAt > 3500) {
+        lastRecoverAt = now;
+        roomAudio.hush();
+        pushReaction("recover");
+        members.forEach((m) => m.el.classList.add("is-leaning"));
+        setTimeout(() => {
+          members.forEach((m) => m.el.classList.remove("is-leaning"));
+        }, 900);
+      }
+    }
+    prevMood = mood;
+  }
+
+  function lifeTick() {
+    // Micro-behaviors so the house never feels frozen
+    const mood = moodFromAttention(attention);
+    members.forEach((m) => {
+      if (Math.random() < 0.08) {
+        m.el.classList.add("is-shift");
+        setTimeout(() => m.el.classList.remove("is-shift"), 500);
+      }
+      if (mood === "drifting" || mood === "checked") {
+        m.restless = Math.min(12, m.restless + (Math.random() < 0.3 ? 1 : 0));
+      } else {
+        m.restless = Math.max(0, m.restless - 0.4);
+      }
+    });
+
+    if (mood === "checked" && Math.random() < 0.35) {
+      triggerGiggleWave(Math.random() < 0.4);
+    } else if (mood === "drifting" && Math.random() < 0.18) {
+      triggerGiggleWave(false);
+      pushReaction("murmur");
+    }
+
+    renderAttention();
   }
 
   function onAudioLevel(level, dtMs) {
-    // level 0..1
     const speaking = level > 0.045;
     if (speaking) {
       silenceMs = 0;
       speakingMsWindow += dtMs;
-      attention = clamp(attention + dtMs * 0.004);
+      attention = clamp(attention + dtMs * 0.0045);
       if (pauseLatched && speakingMsWindow > 600) {
         pauseLatched = false;
         const now = performance.now();
         if (now - lastRecoverAt > 4000) {
           lastRecoverAt = now;
           pushReaction("recover");
+          roomAudio.hush();
         }
       }
     } else {
       speakingMsWindow = 0;
       silenceMs += dtMs;
-      // Natural breath < 1.2s is fine; longer pauses hurt attention
       if (silenceMs > 1200) {
-        attention = clamp(attention - dtMs * 0.012);
+        attention = clamp(attention - dtMs * 0.013);
       }
       if (silenceMs > 1800 && !pauseLatched) {
         pauseLatched = true;
         events.pauses += 1;
-        attention = clamp(attention - 6);
+        attention = clamp(attention - 7);
         pushReaction("pause");
+        if (attention < 50) triggerGiggleWave(attention < 35);
       }
       if (silenceMs > 4000) {
-        attention = clamp(attention - dtMs * 0.02);
+        attention = clamp(attention - dtMs * 0.022);
       }
     }
     renderAttention();
@@ -165,13 +338,14 @@ export function createAudienceEngine({
 
   function onFillerHit(word) {
     events.fillers += 1;
-    attention = clamp(attention - 8);
-    pushReaction("filler", word ? `“${word}” landed soft` : undefined);
+    attention = clamp(attention - 9);
+    pushReaction("filler", word ? `“${word}”` : undefined);
+    if (attention < 60) triggerGiggleWave(attention < 40);
     renderAttention();
   }
 
   function onGoodStretch() {
-    attention = clamp(attention + 2);
+    attention = clamp(attention + 2.5);
     renderAttention();
   }
 
@@ -187,6 +361,7 @@ export function createAudienceEngine({
       lowAttention: Math.round(Math.min(...samples, attention)),
       pauses: events.pauses,
       fillerHits: events.fillers,
+      laughs: events.laughs,
       mood: moodFromAttention(attention),
     };
   }
@@ -197,9 +372,27 @@ export function createAudienceEngine({
     speakingMsWindow = 0;
     pauseLatched = false;
     samples = [];
-    events = { pauses: 0, fillers: 0 };
+    events = { pauses: 0, fillers: 0, laughs: 0 };
+    prevMood = "listening";
     reactionHost.innerHTML = "";
+    members.forEach((m) => {
+      m.restless = 0;
+      m.el.classList.remove("is-laughing", "is-giggling", "is-leaning", "on-phone");
+    });
     renderAttention();
+  }
+
+  function start() {
+    roomAudio.resume();
+    if (lifeTimer) clearInterval(lifeTimer);
+    lifeTimer = setInterval(lifeTick, 1600);
+    renderAttention();
+  }
+
+  function stop() {
+    if (lifeTimer) clearInterval(lifeTimer);
+    lifeTimer = null;
+    roomAudio.stop();
   }
 
   renderAttention();
@@ -210,7 +403,8 @@ export function createAudienceEngine({
     onGoodStretch,
     getSnapshot,
     reset,
-    MOODS,
+    start,
+    stop,
   };
 }
 
