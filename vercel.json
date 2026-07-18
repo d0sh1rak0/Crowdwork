@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/generate-script/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/feedback/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
