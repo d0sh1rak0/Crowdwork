@@ -194,13 +194,19 @@ export function hasScript() {
 }
 
 export function slidesForApi() {
+  // Cap image attachments — full-deck JPEGs make Gemini hang / appear to "write forever"
+  const MAX_IMAGES = 8;
+  let imagesAttached = 0;
   return state.slides.map((s) => {
     const words = String(s.text || "")
       .trim()
       .split(/\s+/)
       .filter(Boolean).length;
     const payload = { n: s.n, text: s.text };
-    if (words < 15) payload.image = s.imageApi;
+    if (words < 15 && s.imageApi && imagesAttached < MAX_IMAGES) {
+      payload.image = s.imageApi;
+      imagesAttached += 1;
+    }
     return payload;
   });
 }

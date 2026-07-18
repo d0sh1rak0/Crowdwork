@@ -47,13 +47,16 @@ ${batchLabel}
 Full deck outline (for coherent time allocation):
 ${buildOutline(body.slides)}
 
+Budget: ~${Math.max(1, Math.round((body.targetMinutes * 60) / Math.max(1, body.slides.length)))}s average per slide.
+Keep each \`script\` short enough to speak in its \`seconds\` (~2.5 words/sec). Stop after the last slide in this batch.
+
 Return JSON:
 {
   "slides": [
     { "n": 1, "script": "spoken text", "seconds": 45, "tip": "delivery note" }
   ]
 }
-Only include slides in this batch.`,
+Only include slides in this batch. No extra keys, no trailing commentary.`,
     },
   ];
   for (const slide of batchSlides) parts.push(...slideParts(slide));
