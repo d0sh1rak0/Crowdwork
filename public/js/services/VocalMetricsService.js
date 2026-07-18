@@ -54,6 +54,8 @@ class VocalMetricsService {
     this.pauseActive = false;
     this.state = "STEADY"; // STEADY | PAUSING | RUSHED | MONOTONE
     this._tickId = null;
+    this._lastRushedAt = 0;
+    this._lastMonotoneAt = 0;
     this._handlers = {
       onPauseStart: null,
       onPauseTick: null,
@@ -76,6 +78,8 @@ class VocalMetricsService {
     this.fillerCounts = {};
     this.pauseActive = false;
     this.state = "STEADY";
+    this._lastRushedAt = 0;
+    this._lastMonotoneAt = 0;
     this._tickId = setInterval(() => this._evaluatePause(), 100);
   }
 
@@ -121,10 +125,16 @@ class VocalMetricsService {
 
     if (wpm >= this.rushedWpm) {
       deliveryState = "RUSHED";
-      this._handlers.onRushed?.({ wpm });
+      if (now - this._lastRushedAt > 4000) {
+        this._lastRushedAt = now;
+        this._handlers.onRushed?.({ wpm });
+      }
     } else if (this._isMonotone()) {
       deliveryState = "MONOTONE";
-      this._handlers.onMonotone?.({});
+      if (now - this._lastMonotoneAt > 5000) {
+        this._lastMonotoneAt = now;
+        this._handlers.onMonotone?.({});
+      }
     }
 
     this.state = deliveryState;

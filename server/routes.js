@@ -175,6 +175,18 @@ Transcript: ${s.transcript || "(silent / no speech captured)"}`
         ? `\nAudience attention: avg ${att.averageAttention}/100 (final ${att.attention}, low ${att.lowAttention}). Long pauses: ${att.pauses}. Filler hits during pitch: ${att.fillerHits}.`
         : "";
 
+      const vocal = body.vocalMetrics || {};
+      const fillerBreakdown = vocal.fillerCounts
+        ? Object.entries(vocal.fillerCounts)
+            .map(([w, n]) => `${w}×${n}`)
+            .join(", ")
+        : "";
+      const vocalBlock = `\nVocal metrics (text-driven from Whisper): WPM ${
+        vocal.wpm ?? body.wpm ?? "n/a"
+      }; delivery state ${vocal.deliveryState || "STEADY"}; parasite/filler total ${
+        vocal.fillerTotal ?? att?.fillerHits ?? 0
+      }${fillerBreakdown ? ` (${fillerBreakdown})` : ""}. Flag rushed (>160 WPM), monotone, and filler habits in improvements when present.`;
+
       const model = getGeminiModel(FEEDBACK_SYSTEM_PROMPT);
       const parsed = await generateJson(
         model,
@@ -183,6 +195,7 @@ Transcript: ${s.transcript || "(silent / no speech captured)"}`
             text: `Target talk length: ${body.targetMinutes} minutes.
 Respond in ${langLabel}.
 ${attentionBlock}
+${vocalBlock}
 
 Rehearsal data:
 ${slideBlocks}
@@ -359,6 +372,9 @@ ${deck}`,
       const langLabel = language === "ru" ? "Russian" : "English";
       const slideScript = body.slideScript || "";
       const transcript = body.transcript || "";
+      const fillerTotal = Number(body.fillerTotal) || 0;
+      const deliveryState = String(body.deliveryState || "STEADY").toUpperCase();
+      const wpm = Number(body.wpm) || 0;
 
       const model = getGeminiModel(
         `You simulate a live pitch room. Output a single JSON object. No markdown fences.`
@@ -371,6 +387,8 @@ ${deck}`,
             text: `The presenter went silent for ${silenceSeconds} seconds during a ${langLabel} pitch.
 Slide script: ${slideScript || "(none)"}
 Transcript so far: ${transcript || "(nothing)"}
+Live vocal metrics: filler/parasite count=${fillerTotal}, delivery=${deliveryState}, recent WPM=${wpm || "n/a"}.
+If fillers are high or delivery is RUSHED/MONOTONE, make the heckle sharper about pacing/clarity.
 
 Return ONLY this JSON shape:
 {"CROWD_STATE":"HECKLE","heckleLine":"short investor interruption max 16 words","stageDirection":"crowd sighs"}

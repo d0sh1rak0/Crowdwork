@@ -311,12 +311,16 @@ async function fireHeckleStrike(silenceSeconds) {
   const s = state();
   const current = s.scriptSlides[index];
   try {
+    const live = vocalMetricsService.getSnapshot();
     const payload = await requestHeckle({
       silenceSeconds,
       language: s.resolvedLanguage,
       slideScript: current?.script || "",
       transcript: transcripts[index] || "",
       deckTitle: s.deckTitle,
+      fillerTotal: live.fillerTotal || 0,
+      deliveryState: live.state || "STEADY",
+      wpm: live.wpm || 0,
     });
 
     audience?.applyCrowdState(payload.CROWD_STATE || "RESTLESS", {
@@ -597,12 +601,19 @@ async function finishRun() {
   });
 
   const speakingSeconds = Math.max(1, Math.round(speakingMs / 1000));
+  const live = vocalMetricsService.getSnapshot();
+  const mergedFillers = { ...fillerCounts };
+  Object.entries(live.fillerCounts || {}).forEach(([k, v]) => {
+    mergedFillers[k] = Math.max(mergedFillers[k] || 0, v);
+  });
   const report = {
     totalSeconds: Math.round(elapsed),
     targetSeconds: s.setup.targetMinutes * 60,
-    wpm: finalWords > 0 ? Math.round((finalWords / speakingSeconds) * 60) : 0,
-    fillerCounts,
-    fillerTotal: fillerTotal(fillerCounts),
+    wpm:
+      live.wpm ||
+      (finalWords > 0 ? Math.round((finalWords / speakingSeconds) * 60) : 0),
+    fillerCounts: mergedFillers,
+    fillerTotal: fillerTotal(mergedFillers),
     slidesOverBudget: slides.filter(
       (r, i) => r.actualSeconds > s.scriptSlides[i].seconds
     ).length,
@@ -610,6 +621,7 @@ async function finishRun() {
     speakingSeconds,
     finalWordCount: finalWords,
     attention: attentionSnapshot,
+    deliveryState: live.state,
   };
 
   setRehearsalReport(report);
@@ -748,6 +760,13 @@ async function loadCoach(report) {
         targetSeconds: s.scriptSlides[i]?.seconds || 0,
       })),
       attention: att || undefined,
+      wpm: report.wpm,
+      vocalMetrics: {
+        wpm: report.wpm,
+        fillerTotal: report.fillerTotal,
+        fillerCounts: report.fillerCounts,
+        deliveryState: report.deliveryState || "STEADY",
+      },
     });
     setFeedback(data);
     renderCoach(data);
