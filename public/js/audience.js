@@ -380,38 +380,46 @@ export function createAudienceEngine({
     renderAttention();
   }
 
-  function onAudioLevel(level, dtMs) {
-    const speaking = level > 0.045;
-    if (speaking) {
-      silenceMs = 0;
-      speakingMsWindow += dtMs;
-      attention = clamp(attention + dtMs * 0.0045);
-      if (pauseLatched && speakingMsWindow > 600) {
-        pauseLatched = false;
-        const now = performance.now();
-        if (now - lastRecoverAt > 4000) {
-          lastRecoverAt = now;
-          pushReaction("recover");
-          roomAudio.hush();
-        }
-      }
+  /**
+   * Ambient mic level is visualization-only now.
+   * Attention / crowd penalties come from Whisper text metrics (≥1.5s pause).
+   */
+  function onAudioLevel(_level, _dtMs) {
+    /* no-op for attention — kept for API compatibility */
+  }
+
+  /** Precise text-gap pause from VocalMetrics (≥ 1.5s since last Whisper words). */
+  function onTextPause(pauseMs) {
+    if (pauseMs < 1500) return;
+    if (!pauseLatched) {
+      pauseLatched = true;
+      events.pauses += 1;
+      attention = clamp(attention - 4);
+      pushReaction("pause", pick(["…", "waiting", "breath held", "go on?"]));
     } else {
-      speakingMsWindow = 0;
-      silenceMs += dtMs;
-      if (silenceMs > 1200) {
-        attention = clamp(attention - dtMs * 0.013);
-      }
-      if (silenceMs > 1800 && !pauseLatched) {
-        pauseLatched = true;
-        events.pauses += 1;
-        attention = clamp(attention - 7);
-        pushReaction("pause");
-        if (attention < 50) triggerGiggleWave(attention < 35);
-      }
-      if (silenceMs > 4000) {
-        attention = clamp(attention - dtMs * 0.022);
+      // ~2.5 attention pts / sec after the precision threshold
+      attention = clamp(attention - 0.25);
+      if (pauseMs >= 2800 && pauseMs < 3000 && attention < 55) {
+        triggerGiggleWave(false);
       }
     }
+    silenceMs = pauseMs;
+    renderAttention();
+  }
+
+  function onSpeechResume() {
+    if (pauseLatched) {
+      pauseLatched = false;
+      const now = performance.now();
+      if (now - lastRecoverAt > 3000) {
+        lastRecoverAt = now;
+        pushReaction("recover");
+        roomAudio.hush();
+        attention = clamp(attention + 3);
+      }
+    }
+    silenceMs = 0;
+    speakingMsWindow = 0;
     renderAttention();
   }
 
@@ -419,12 +427,51 @@ export function createAudienceEngine({
     events.fillers += 1;
     attention = clamp(attention - 9);
     pushReaction("filler", word ? `“${word}”` : undefined);
+    // Negative crowd shift: look away / cross arms
+    members.forEach((m, i) => {
+      if (i % 3 === 0) {
+        m.el.classList.add("is-look-away", "is-arms-crossed");
+        setTimeout(() => {
+          m.el.classList.remove("is-look-away", "is-arms-crossed");
+        }, 1200);
+      }
+    });
     if (attention < 60) triggerGiggleWave(attention < 40);
+    renderAttention();
+  }
+
+  /** High-velocity panic > 160 WPM */
+  function onRushed(wpm) {
+    attention = clamp(attention - 8);
+    if (houseEl) houseEl.dataset.delivery = "rushed";
+    members.forEach((m) => {
+      m.el.classList.add("is-lean-back");
+      setTimeout(() => m.el.classList.remove("is-lean-back"), 1400);
+    });
+    pushReaction("lose", wpm ? `${wpm} wpm` : "too fast");
+    roomAudio.setTension(0.7);
+    renderAttention();
+  }
+
+  /** Flat delivery — boredom / yawn */
+  function onMonotone() {
+    attention = clamp(attention - 6);
+    if (houseEl) houseEl.dataset.delivery = "monotone";
+    members.forEach((m, i) => {
+      m.el.classList.add("is-bored");
+      if (i % 4 === 0) m.el.classList.add("is-yawn");
+      setTimeout(() => {
+        m.el.classList.remove("is-bored", "is-yawn");
+      }, 1600);
+    });
+    pushReaction("murmur", pick(["yawn", "flat", "zoning out", "zzz"]));
+    roomAudio.setTension(0.5);
     renderAttention();
   }
 
   function onGoodStretch() {
     attention = clamp(attention + 2.5);
+    if (houseEl) houseEl.dataset.delivery = "steady";
     renderAttention();
   }
 
@@ -478,7 +525,11 @@ export function createAudienceEngine({
 
   return {
     onAudioLevel,
+    onTextPause,
+    onSpeechResume,
     onFillerHit,
+    onRushed,
+    onMonotone,
     onGoodStretch,
     onHesitationWarning,
     applyCrowdState,

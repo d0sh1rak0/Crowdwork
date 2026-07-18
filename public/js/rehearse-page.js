@@ -5,8 +5,10 @@ import {
   toastRetry,
   transcribeAudio,
 } from "./api.js";
-import { createAudienceEngine, createAudioMonitor } from "./audience.js";
+import { createAudienceEngine } from "./audience.js";
+import WaveformVisualizer from "./components/WaveformVisualizer.js";
 import sessionTimerService from "./services/SessionTimerService.js";
+import vocalMetricsService from "./services/VocalMetricsService.js";
 import {
   getPurposeString,
   getState,
@@ -16,12 +18,7 @@ import {
   setObjections,
   setRehearsalReport,
 } from "./store.js";
-import {
-  detectFillers,
-  fillerTotal,
-  formatTime,
-  wordCount,
-} from "./utils.js";
+import { detectFillers, fillerTotal, formatTime, wordCount } from "./utils.js";
 
 const stageRoot = document.getElementById("stage-root");
 const countdownView = document.getElementById("countdown-view");
@@ -56,19 +53,19 @@ const slideTimes = [];
 const transcripts = [];
 let speakingMs = 0;
 let finalWords = 0;
-let seenFillers = {};
 
 let mediaStream = null;
 let audioStream = null;
 let mediaRecorder = null;
 let chunks = [];
 let recordTimer = null;
-let audioMonitor = null;
+let waveform = null;
 let audience = null;
 let attentionSnapshot = null;
 let heckleAudio = null;
 let heckleInFlight = false;
 let hesitationApplied = false;
+let pauseDriftTimer = null;
 
 function state() {
   return getState();
@@ -92,14 +89,7 @@ function initAudience() {
   });
 }
 
-function noteNewFillers(chunk) {
-  const lang = state().resolvedLanguage;
-  const counts = detectFillers(chunk, lang);
-  Object.entries(counts).forEach(([word, n]) => {
-    for (let i = 0; i < n; i++) audience?.onFillerHit(word);
-    seenFillers[word] = (seenFillers[word] || 0) + n;
-  });
-}
+/* Filler hits are handled by VocalMetricsService → audience.onFillerHit */
 
 async function boot() {
   const s = state();
@@ -213,25 +203,88 @@ function startRun() {
   startTimers();
   audience?.start();
   startSilenceSentinel();
+  startVocalMetrics();
   renderScriptStack();
 
   if (!micDenied) {
     startRecording();
-    audioMonitor = createAudioMonitor(audioStream || mediaStream, (level, dt) => {
-      if (phase !== "running" || paused) return;
-      audience?.onAudioLevel(level, dt);
-    });
-    audioMonitor.resume?.();
+    const waveCanvas = document.getElementById("wave-canvas");
+    if (waveCanvas) {
+      waveform = new WaveformVisualizer(waveCanvas);
+      waveform.init(audioStream || mediaStream);
+      void waveform.resume?.();
+    }
   } else {
-    // Without mic, sentinel + gentle decay still animate the room
-    const idle = setInterval(() => {
-      if (phase !== "running") {
-        clearInterval(idle);
-        return;
-      }
-      if (!paused) audience?.onAudioLevel(0, 200);
-    }, 200);
+    const wrap = document.querySelector(".wave-panel");
+    if (wrap) wrap.classList.add("wave-offline");
   }
+}
+
+function startVocalMetrics() {
+  vocalMetricsService.start({
+    onPauseStart: (pauseMs) => {
+      if (phase !== "running" || paused) return;
+      audience?.onTextPause(pauseMs);
+    },
+    onPauseTick: (pauseMs) => {
+      if (phase !== "running" || paused) return;
+      // Continuous drift only after the 1.5s precision threshold
+      audience?.onTextPause(pauseMs);
+    },
+    onPauseEnd: () => {
+      if (phase !== "running") return;
+      audience?.onSpeechResume();
+      hesitationApplied = false;
+    },
+    onFiller: (word, total) => {
+      if (phase !== "running" || paused) return;
+      flashFillerWarning(word, total);
+      audience?.onFillerHit(word);
+    },
+    onRushed: ({ wpm }) => {
+      if (phase !== "running" || paused) return;
+      audience?.onRushed(wpm);
+      setMetricState("Rushed", "danger");
+    },
+    onMonotone: () => {
+      if (phase !== "running" || paused) return;
+      audience?.onMonotone();
+      setMetricState("Monotone", "warn");
+    },
+    onMetrics: (m) => {
+      updateMetricHud(m);
+    },
+  });
+}
+
+function flashFillerWarning(word, total) {
+  const el = document.getElementById("filler-flash");
+  if (!el) return;
+  el.textContent = `Parasite · ${word}`;
+  el.classList.add("show");
+  const fillersEl = document.getElementById("metric-fillers");
+  if (fillersEl) fillersEl.textContent = `Fillers ${total}`;
+  clearTimeout(flashFillerWarning._t);
+  flashFillerWarning._t = setTimeout(() => el.classList.remove("show"), 900);
+}
+
+function setMetricState(label, tone) {
+  const el = document.getElementById("metric-state");
+  if (!el) return;
+  el.textContent = label;
+  el.dataset.tone = tone || "steady";
+}
+
+function updateMetricHud(m) {
+  const wpmEl = document.getElementById("metric-wpm");
+  if (wpmEl) wpmEl.textContent = `${m.wpm || 0} wpm`;
+  const fillersEl = document.getElementById("metric-fillers");
+  if (fillersEl) fillersEl.textContent = `Fillers ${m.fillerTotal || 0}`;
+  if (m.state === "RUSHED") setMetricState("Rushed", "danger");
+  else if (m.state === "MONOTONE") setMetricState("Monotone", "warn");
+  else if (m.state === "PAUSING" || (m.pauseMs || 0) >= 1500)
+    setMetricState("Pause", "warn");
+  else setMetricState("Steady", "steady");
 }
 
 /** Silence Sentinel — independent of MediaRecorder chunk delivery */
@@ -411,7 +464,8 @@ function startRecording() {
     if (e.data?.size) chunks.push(e.data);
   };
   mediaRecorder.start(1000);
-  recordTimer = setInterval(() => flushTranscript(false), 6000);
+  // Faster STT cadence so 1.5s text-pause detection stays accurate
+  recordTimer = setInterval(() => flushTranscript(false), 2000);
 }
 
 async function flushTranscript(finalFlush) {
@@ -431,7 +485,7 @@ async function flushTranscript(finalFlush) {
     const { text } = await transcribeAudio(blob, state().resolvedLanguage);
     if (!text?.trim()) return;
 
-    // Exact moment valid speech returns — reset Silence Sentinel
+    // Exact moment valid speech returns — reset Silence Sentinel + text pause clock
     sessionTimerService.resetSilenceCounter();
     hesitationApplied = false;
 
@@ -440,8 +494,15 @@ async function flushTranscript(finalFlush) {
     const words = wordCount(text);
     finalWords += words;
     speakingMs += Math.min(8000, Math.max(400, words * 350));
-    noteNewFillers(text);
-    if (words >= 8) audience?.onGoodStretch();
+
+    // Text-driven metrics (fillers / WPM / monotone) — not waveform volume
+    const metrics = vocalMetricsService.ingestTranscript(
+      text,
+      state().resolvedLanguage
+    );
+    if (words >= 6 && metrics?.state === "STEADY") {
+      audience?.onGoodStretch();
+    }
   } catch (err) {
     console.warn("transcribe", err);
   }
@@ -452,10 +513,15 @@ async function stopRecording() {
     clearInterval(recordTimer);
     recordTimer = null;
   }
-  audioMonitor?.stop();
-  audioMonitor = null;
+  waveform?.stop();
+  waveform = null;
   audience?.stop();
   sessionTimerService.stopTracking();
+  vocalMetricsService.stop();
+  if (pauseDriftTimer) {
+    clearInterval(pauseDriftTimer);
+    pauseDriftTimer = null;
+  }
   if (heckleAudio) {
     try {
       heckleAudio.pause();

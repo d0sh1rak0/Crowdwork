@@ -65,6 +65,20 @@
               <video id="cam-video" playsinline autoplay muted></video>
               <div id="cam-fallback" class="cam-fallback hidden">Camera off</div>
             </div>
+            <div class="wave-panel" aria-label="Live microphone waveform">
+              <div class="wave-head">
+                <span class="wave-label">Mic</span>
+                <span id="metric-wpm" class="wave-metric font-utility">0 wpm</span>
+              </div>
+              <div class="wave-canvas-wrap">
+                <canvas id="wave-canvas" width="280" height="64"></canvas>
+              </div>
+              <div class="wave-foot">
+                <span id="metric-state" class="metric-pill">Steady</span>
+                <span id="metric-fillers" class="metric-pill muted">Fillers 0</span>
+              </div>
+              <div id="filler-flash" class="filler-flash" aria-live="polite"></div>
+            </div>
           </div>
         </div>
 
