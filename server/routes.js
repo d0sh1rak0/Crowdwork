@@ -426,14 +426,42 @@ Use CROWD_STATE HECKLE if silence>=5 else RESTLESS. heckleLine in ${langLabel}.`
     } catch (err) {
       console.error("[heckle]", err);
       // Deterministic fallback so silence never freezes the room
+      const ru = req.body?.language === "ru";
+      const lines = ru
+        ? [
+            "Мы вас слушаем — продолжайте.",
+            "Есть вопрос по цифрам — вы с нами?",
+            "Тишина в зале. Что дальше?",
+          ]
+        : [
+            "We're waiting — take us somewhere.",
+            "Quick check — what's the ask?",
+            "Still with us? Hit the next beat.",
+            "Dead air. Where does this go?",
+          ];
+      const heckleLine = lines[Math.floor(Math.random() * lines.length)];
+      let audioBase64 = null;
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          const speech = await openai.audio.speech.create({
+            model: "tts-1",
+            voice: ru ? "nova" : "onyx",
+            input: heckleLine,
+            response_format: "mp3",
+          });
+          audioBase64 = Buffer.from(await speech.arrayBuffer()).toString(
+            "base64"
+          );
+        } catch {
+          /* optional */
+        }
+      }
       res.json({
-        CROWD_STATE: "RESTLESS",
-        heckleLine:
-          req.body?.language === "ru"
-            ? "Мы вас слушаем — продолжайте."
-            : "We're waiting — take us somewhere.",
+        CROWD_STATE: Number(req.body?.silenceSeconds) >= 5 ? "HECKLE" : "RESTLESS",
+        heckleLine,
         stageDirection: "crowd sighs and checks watches",
-        audioBase64: null,
+        audioBase64,
         fallback: true,
       });
     }
