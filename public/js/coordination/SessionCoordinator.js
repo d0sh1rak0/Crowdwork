@@ -1,11 +1,12 @@
 /**
  * SessionCoordinator — mic MediaRecorder → Groq Whisper → PacingTelemetry.
  *
- * Guards against "waveform dances but Whisper hears silence":
- * 1. Adaptive MimeType negotiation (Safari often rejects audio/webm)
- * 2. Deep-copy chunk snapshots before clearing the live buffer
- * 3. Complete start→stop slices so containers keep valid headers
- * 4. Console telemetry: every blob logs mimeType + byte size
+ * Whole-file slice architecture (fixes Whisper "silence" while waveform dances):
+ * - Adaptive MimeType negotiation (Safari often rejects audio/webm)
+ * - Every interval: MediaRecorder.start() → wait 1s → stop()
+ * - That yields a mathematically whole container WITH native headers
+ * - Deep-copy chunk snapshot before clearing the live buffer
+ * - Never use timeslice start(1000) (headerless orphan blobs)
  */
 
 import audioTranscriptionService from "../services/AudioTranscriptionService.js";
@@ -19,6 +20,8 @@ const MIME_CANDIDATES = [
   "audio/aac",
   "audio/wav",
 ];
+
+const SLICE_MS = 1000;
 
 function extensionForMime(mimeType) {
   const base = String(mimeType || "")
@@ -34,6 +37,38 @@ function extensionForMime(mimeType) {
   return "webm";
 }
 
+/** Basic container magic-byte check so we never ship headerless fragments. */
+async function looksLikeWholeContainer(blob, mimeType) {
+  if (!blob || blob.size < 32) return false;
+  const buf = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const mime = String(mimeType || blob.type || "").toLowerCase();
+
+  // EBML / WebM / Matroska: 1A 45 DF A3
+  const isEbml =
+    buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
+  // ISO BMFF (mp4/m4a): bytes 4..7 === 'ftyp'
+  const isFtyp =
+    buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70;
+  // OggS
+  const isOgg =
+    buf[0] === 0x4f && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53;
+  // RIFF....WAVE
+  const isWav =
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46;
+
+  if (mime.includes("webm") || mime.includes("matroska")) return isEbml;
+  if (mime.includes("mp4") || mime.includes("aac") || mime.includes("m4a")) {
+    return isFtyp;
+  }
+  if (mime.includes("ogg")) return isOgg;
+  if (mime.includes("wav")) return isWav;
+  // Unknown negotiated type — accept any recognized magic
+  return isEbml || isFtyp || isOgg || isWav;
+}
+
 class SessionCoordinator {
   constructor() {
     this.stream = null;
@@ -41,7 +76,7 @@ class SessionCoordinator {
     this.audioChunks = [];
     this.mimeType = "";
     this.ticker = null;
-    this._sliceMs = 1200;
+    this._sliceMs = SLICE_MS;
     this._busy = false;
     this._stopped = true;
     this._handlers = {
@@ -54,7 +89,6 @@ class SessionCoordinator {
     };
   }
 
-  /** Dynamically negotiate the best supported container for this browser/OS. */
   getSupportedMimeType() {
     if (typeof MediaRecorder === "undefined") {
       console.warn(
@@ -71,19 +105,15 @@ class SessionCoordinator {
           return type;
         }
       } catch {
-        /* ignore unsupported probe errors */
+        /* ignore */
       }
     }
     console.warn(
-      "CrowdWork AI: No preferred MimeType matched — using browser default MediaRecorder options."
+      "CrowdWork AI: No preferred MimeType matched — using browser default."
     );
     return "";
   }
 
-  /**
-   * @param {MediaStream} stream audio (or av) stream already granted
-   * @param {object} handlers
-   */
   start(stream, handlers = {}) {
     this.stop();
     this.stream = stream;
@@ -102,26 +132,34 @@ class SessionCoordinator {
       }
     );
 
-    // Seed so the meter doesn't tank before the first STT round-trip
     pacingTelemetry.registerSpeechActivity({ text: "" });
 
-    this._armRecorder();
-    this.ticker = setInterval(() => {
-      void this._tickSlice();
-    }, this._sliceMs);
+    // Sequential loop: each iteration records a full 1s container, then ships it.
+    // (setInterval would overlap with the 1s capture and skip every other slice)
+    this._loopActive = true;
+    void this._runSliceLoop();
 
-    console.log(
-      "[SessionCoordinator] Live STT pipeline armed",
-      {
-        mimeType: this.mimeType || "(browser default)",
-        sliceMs: this._sliceMs,
-        audioTracks: stream?.getAudioTracks?.().length || 0,
+    console.log("[SessionCoordinator] Live STT pipeline armed", {
+      mimeType: this.mimeType || "(browser default)",
+      sliceMs: this._sliceMs,
+      mode: "whole-file start→stop (no timeslice)",
+      audioTracks: stream?.getAudioTracks?.().length || 0,
+    });
+  }
+
+  async _runSliceLoop() {
+    while (!this._stopped && this._loopActive) {
+      if (!this._handlers.shouldRun()) {
+        await new Promise((r) => setTimeout(r, 200));
+        continue;
       }
-    );
+      await this._tickSlice();
+    }
   }
 
   stop() {
     this._stopped = true;
+    this._loopActive = false;
     if (this.ticker) {
       clearInterval(this.ticker);
       this.ticker = null;
@@ -138,13 +176,12 @@ class SessionCoordinator {
       throw new Error("No audio tracks on media stream.");
     }
 
-    // Try negotiated type, then fall through candidates, then bare default
     const attempts = [];
     if (this.mimeType) attempts.push(this.mimeType);
     for (const type of MIME_CANDIDATES) {
       if (!attempts.includes(type)) attempts.push(type);
     }
-    attempts.push(""); // browser default
+    attempts.push("");
 
     let lastErr = null;
     for (const type of attempts) {
@@ -169,74 +206,46 @@ class SessionCoordinator {
     throw lastErr || new Error("Unable to construct MediaRecorder.");
   }
 
-  _armRecorder() {
-    this._teardownRecorder(false);
-    if (!this.stream?.getAudioTracks?.().length) return;
-    try {
-      this.mediaRecorder = this._createRecorder();
-    } catch (err) {
-      this._handlers.onError?.(err);
-      this.mediaRecorder = null;
-      return;
-    }
-
-    this.audioChunks = [];
-    this.mediaRecorder.ondataavailable = (event) => {
-      // Only store valid, non-empty packets
-      if (event.data && event.data.size > 0) {
-        this.audioChunks.push(event.data);
-      }
-    };
-    this.mediaRecorder.onerror = (ev) => {
-      console.error("[SessionCoordinator] MediaRecorder error", ev?.error || ev);
-      this._handlers.onError?.(ev?.error || ev);
-    };
-
-    try {
-      // Complete file per slice — avoids headerless timeslice WebM (Whisper silence)
-      this.mediaRecorder.start();
-    } catch (err) {
-      this._handlers.onError?.(err);
-    }
-  }
-
-  _teardownRecorder(clearChunks = true) {
+  _teardownRecorder() {
     if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
       try {
         this.mediaRecorder.ondataavailable = null;
         this.mediaRecorder.onerror = null;
+        this.mediaRecorder.onstop = null;
         this.mediaRecorder.stop();
       } catch {
         /* ignore */
       }
     }
     this.mediaRecorder = null;
-    if (clearChunks) this.audioChunks = [];
+    this.audioChunks = [];
   }
 
   /**
-   * Stop the active recorder into a validated Blob.
-   * Deep-copies chunk buffers before clearing the live array.
+   * Record exactly one whole container file for `durationMs`, then stop.
+   * NEVER uses MediaRecorder.start(timeslice) — that drops headers.
    */
-  async _stopToBlob() {
-    const rec = this.mediaRecorder;
-    if (!rec || rec.state !== "recording") return null;
+  async _captureWholeSlice(durationMs = SLICE_MS) {
+    if (!this.stream?.getAudioTracks?.().length) return null;
 
-    const blob = await new Promise((resolve) => {
+    const rec = this._createRecorder();
+    this.mediaRecorder = rec;
+    this.audioChunks = [];
+
+    const blobPromise = new Promise((resolve) => {
       let settled = false;
       const finish = () => {
         if (settled) return;
         settled = true;
 
-        // FIX: clean snapshot copy, then reset the live track buffer
+        // Deep-copy snapshot BEFORE clearing the live buffer
         const chunksToProcess = [...this.audioChunks];
         this.audioChunks = [];
 
-        const currentMimeType =
-          rec.mimeType || this.mimeType || "audio/webm";
+        const currentMimeType = rec.mimeType || this.mimeType || "audio/webm";
         if (!chunksToProcess.length) {
           console.warn(
-            "Telemetry Alert: Caught an empty audio chunk buffer. Data transmission skipped.",
+            "Telemetry Alert: empty chunk buffer after stop — skipped.",
             { mimeType: currentMimeType }
           );
           resolve(null);
@@ -245,7 +254,7 @@ class SessionCoordinator {
 
         const audioBlob = new Blob(chunksToProcess, { type: currentMimeType });
         console.log(
-          `[SessionCoordinator] Audio blob compiled → mimeType=${currentMimeType} size=${audioBlob.size}B chunks=${chunksToProcess.length}`
+          `[SessionCoordinator] Whole audio blob compiled → mimeType=${currentMimeType} size=${audioBlob.size}B chunks=${chunksToProcess.length}`
         );
 
         if (audioBlob.size === 0) {
@@ -259,29 +268,46 @@ class SessionCoordinator {
         resolve(audioBlob);
       };
 
-      // Keep a single ondataavailable handler (no duplicate listeners)
       rec.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           this.audioChunks.push(event.data);
         }
       };
+      rec.onerror = (ev) => {
+        console.error("[SessionCoordinator] MediaRecorder error", ev?.error || ev);
+        finish();
+      };
       rec.onstop = finish;
 
       try {
-        rec.requestData();
-      } catch {
-        /* ignore */
-      }
-      try {
-        rec.stop();
-      } catch {
-        finish();
+        // CRITICAL: no timeslice argument — one complete file with headers
+        rec.start();
+      } catch (err) {
+        console.error("Critical failure starting MediaRecorder:", err);
+        resolve(null);
+        return;
       }
 
-      // Safety net if stop never fires
-      setTimeout(finish, 1500);
+      setTimeout(() => {
+        if (rec.state === "recording") {
+          try {
+            // Flush any remaining bytes, then stop to finalize container
+            rec.requestData();
+          } catch {
+            /* ignore */
+          }
+          try {
+            rec.stop();
+          } catch {
+            finish();
+          }
+        } else {
+          finish();
+        }
+      }, durationMs);
     });
 
+    const blob = await blobPromise;
     this.mediaRecorder = null;
     return blob;
   }
@@ -291,8 +317,18 @@ class SessionCoordinator {
 
     const mimeType = blob.type || this.mimeType || "audio/webm";
     const ext = extensionForMime(mimeType);
+
+    const whole = await looksLikeWholeContainer(blob, mimeType);
+    if (!whole) {
+      console.warn(
+        `[CrowdWork Debug] Rejecting orphan/headerless blob: size = ${blob.size} bytes, type = ${mimeType}`
+      );
+      return null;
+    }
+
+    // Explicit user-facing debug line (required)
     console.log(
-      `[SessionCoordinator] Shipping STT payload → mimeType=${mimeType} size=${blob.size}B filename=recording.${ext}`
+      `[CrowdWork Debug] Audio payload sent: size = ${blob.size} bytes, type = ${mimeType}`
     );
 
     const language =
@@ -322,11 +358,7 @@ class SessionCoordinator {
     if (!this._handlers.shouldRun()) return;
     this._busy = true;
     try {
-      const blob = await this._stopToBlob();
-      // Re-arm immediately so the next window keeps capturing
-      if (!this._stopped) this._armRecorder();
-
-      // Tiny blobs are usually container headers with no PCM — skip API waste
+      const blob = await this._captureWholeSlice(this._sliceMs);
       if (!blob || blob.size < 256) {
         if (blob) {
           console.warn(
@@ -335,21 +367,15 @@ class SessionCoordinator {
         }
         return;
       }
-
       await this._shipBlob(blob);
     } catch (err) {
-      console.error(
-        "Transcription pipeline execution crash:",
-        err
-      );
+      console.error("Transcription pipeline execution crash:", err);
       this._handlers.onError?.(err);
-      if (!this._stopped && !this.mediaRecorder) this._armRecorder();
     } finally {
       this._busy = false;
     }
   }
 
-  /** Force one final slice (e.g. slide change / finish). */
   async flushFinal() {
     if (this._stopped) return null;
     const waitStart = Date.now();
@@ -358,8 +384,10 @@ class SessionCoordinator {
     }
     this._busy = true;
     try {
-      const blob = await this._stopToBlob();
-      if (!this._stopped) this._armRecorder();
+      // Shorter final flush so slide changes stay snappy
+      const blob = await this._captureWholeSlice(
+        Math.min(800, this._sliceMs)
+      );
       if (!blob || blob.size < 200) return null;
       return await this._shipBlob(blob);
     } catch (err) {
@@ -373,4 +401,4 @@ class SessionCoordinator {
 }
 
 export default SessionCoordinator;
-export { SessionCoordinator, MIME_CANDIDATES, extensionForMime };
+export { SessionCoordinator, MIME_CANDIDATES, extensionForMime, SLICE_MS };
