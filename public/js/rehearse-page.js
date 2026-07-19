@@ -16,6 +16,7 @@ import {
   getPurposeString,
   getState,
   hasScript,
+  navigateSafely,
   resetAll,
   setFeedback,
   setObjections,
@@ -98,7 +99,7 @@ function initAudience() {
 async function boot() {
   const s = state();
   if (!hasScript() || !s.slides.length) {
-    window.location.replace("/");
+    navigateSafely("/", { replace: true });
     return;
   }
 
@@ -978,21 +979,21 @@ document.getElementById("btn-exit").addEventListener("click", async () => {
       /* ignore */
     }
   }
-  window.location.href = "/script";
+  navigateSafely("/script");
 });
 
 document.getElementById("btn-again").addEventListener("click", () => {
   setRehearsalReport(null);
   setFeedback(null);
   setObjections(null);
-  window.location.href = "/rehearse";
+  navigateSafely("/rehearse");
 });
 document.getElementById("btn-back-script").addEventListener("click", () => {
-  window.location.href = "/script";
+  navigateSafely("/script");
 });
 document.getElementById("btn-new").addEventListener("click", () => {
   resetAll();
-  window.location.href = "/";
+  navigateSafely("/");
 });
 
 window.addEventListener("mousemove", () => {

@@ -7,6 +7,7 @@ import {
   getState,
   hasDeck,
   hasScript,
+  navigateSafely,
   resetSlideToOriginal,
   setCurrentSlideIndex,
   setGenerating,
@@ -18,6 +19,7 @@ import {
   updateSlideScript,
   updateSetup,
 } from "./store.js";
+import { setUploadBanner } from "./utilities/navigationBanner.js";
 import {
   DEFAULT_PACE_TARGET_WPM,
   PACE_TARGET_MAX,
@@ -50,6 +52,13 @@ const rateLimitRoot = document.getElementById("rate-limit-dash");
 const rateLimitDash = rateLimitRoot
   ? new RateLimitDashboard(rateLimitRoot)
   : null;
+const genErrorTitle = document.getElementById("gen-error-title");
+const genErrorDetail = document.getElementById("gen-error-detail");
+const genErrorRetry = document.getElementById("gen-error-retry");
+const genErrorBack = document.getElementById("gen-error-back");
+
+/** @type {null | (() => void)} */
+let genErrorRetryFn = null;
 
 const TONES = [
   { id: "confident", label: "Confident" },
@@ -87,14 +96,59 @@ function abortGenerationPipeline() {
 }
 
 /** Escape hatch — cancel retries and return to upload canvas */
-function escapeToUpload() {
+function escapeToUpload(bannerMessage) {
   abortGenerationPipeline();
   sessionStorage.removeItem("crowdwork-pending-generate");
   setGenerating(false);
-  window.location.href = "/";
+  if (bannerMessage) {
+    setUploadBanner({ message: bannerMessage, tone: "error" });
+  }
+  navigateSafely("/");
 }
 
-rateLimitDash?.onBack(escapeToUpload);
+rateLimitDash?.onBack(() => escapeToUpload());
+
+genErrorBack?.addEventListener("click", () => escapeToUpload());
+genErrorRetry?.addEventListener("click", () => {
+  const fn = genErrorRetryFn;
+  if (fn) fn();
+});
+
+/**
+ * Non-rate-limit failures: never enter the predictive bar loop.
+ * - No script yet → return to upload with a clear context banner
+ * - Mid-session regen → dedicated error panel on this page
+ */
+function routeHardGenerationFailure(err, { retryFn = null } = {}) {
+  abortGenerationPipeline();
+  rateLimitDash?.hide();
+  setGenerating(false);
+  sessionStorage.removeItem("crowdwork-pending-generate");
+
+  const message =
+    err instanceof Error
+      ? err.message
+      : "Something went wrong generating your script.";
+
+  if (!hasScript()) {
+    escapeToUpload(message);
+    return;
+  }
+
+  showGenerationErrorPanel(message, retryFn);
+}
+
+function showGenerationErrorPanel(message, retryFn = null) {
+  genErrorRetryFn = typeof retryFn === "function" ? retryFn : null;
+  if (genErrorTitle) genErrorTitle.textContent = "Couldn’t finish that request";
+  if (genErrorDetail) {
+    genErrorDetail.textContent = message;
+  }
+  if (genErrorRetry) {
+    genErrorRetry.hidden = !genErrorRetryFn;
+  }
+  showEmpty();
+}
 
 /**
  * Generate with silent 429 recovery + predictive dashboard.
@@ -174,17 +228,19 @@ async function runPendingGenerate() {
       setGenerating(false);
       return false;
     }
-    setGenerating(false);
-    toastRetry(err instanceof Error ? err.message : "Script generation failed.", () => {
-      runPendingGenerate().then(() => render());
+    // Hard faults / network / 500 → upload banner (not rate-limit dashboard)
+    routeHardGenerationFailure(err, {
+      retryFn: () => {
+        runPendingGenerate().then(() => render());
+      },
     });
     return false;
   }
 }
 
 function showLoading() {
-  loading.classList.remove("hidden");
   empty.classList.add("hidden");
+  loading.classList.remove("hidden");
   studio.classList.add("hidden");
   headerMeta.classList.add("hidden");
 }
@@ -194,6 +250,7 @@ function showEmpty() {
   loading.classList.add("hidden");
   empty.classList.remove("hidden");
   studio.classList.add("hidden");
+  headerMeta.classList.add("hidden");
 }
 
 function showStudio() {
@@ -207,7 +264,7 @@ function showStudio() {
 function render() {
   const state = getState();
   if (!hasDeck() && !state.isGenerating) {
-    window.location.replace("/");
+    navigateSafely("/", { replace: true });
     return;
   }
   if (state.isGenerating && !hasScript()) {
@@ -320,10 +377,9 @@ document.getElementById("regen-apply").addEventListener("click", async () => {
     render();
   } catch (err) {
     if (err?.name === "AbortError") return;
-    setGenerating(false);
-    toastRetry(err instanceof Error ? err.message : "Regeneration failed.", () =>
-      document.getElementById("regen-apply").click()
-    );
+    routeHardGenerationFailure(err, {
+      retryFn: () => document.getElementById("regen-apply").click(),
+    });
   } finally {
     applyBtn.disabled = false;
     applyBtn.textContent = "Apply";
@@ -555,7 +611,7 @@ paceStartBtn?.addEventListener("click", () => {
     paceConfirmed: true,
   });
   closePaceTuner();
-  window.location.href = "/rehearse";
+  navigateSafely("/rehearse");
 });
 
 paceSlider?.addEventListener("input", () => {
@@ -618,11 +674,10 @@ async function regenerateAll(tone) {
     render();
   } catch (err) {
     if (err?.name === "AbortError") return;
-    setGenerating(false);
-    toastRetry(err instanceof Error ? err.message : "Regeneration failed.", () =>
-      regenerateAll(tone)
-    );
-    render();
+    routeHardGenerationFailure(err, {
+      retryFn: () => regenerateAll(tone),
+    });
+    if (hasScript()) render();
   }
 }
 
@@ -675,7 +730,7 @@ document.getElementById("btn-speak").addEventListener("click", async () => {
 
 (async function init() {
   if (!hasDeck() && !sessionStorage.getItem("crowdwork-pending-generate")) {
-    window.location.replace("/");
+    navigateSafely("/", { replace: true });
     return;
   }
 

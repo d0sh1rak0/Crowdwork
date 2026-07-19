@@ -3,7 +3,11 @@
  */
 
 const RATE_LIMIT_RE =
-  /429|rate.?limit|too many requests|RESOURCE_EXHAUSTED|quota|overloaded|capacity|throttl|try again later|generation service is busy/i;
+  /429|rate.?limit|too many requests|RESOURCE_EXHAUSTED|quota.?exceeded|exceeded.+quota|overloaded|capacity|throttl|try again later|generation service is busy|resource has been exhausted/i;
+
+/** Auth / config / hard faults must NEVER enter the predictive retry loop */
+const HARD_FAULT_RE =
+  /api.?key|invalid.?key|unauthorized|permission.?denied|authentication|forbidden|not configured|is not set|ENOTFOUND|ECONNREFUSED|network|failed to fetch|Load failed|500|Internal Server Error/i;
 
 export class RateLimitError extends Error {
   /**
@@ -20,12 +24,24 @@ export class RateLimitError extends Error {
   }
 }
 
+export function isHardFaultError(err) {
+  if (!err) return false;
+  const status = Number(err.status) || 0;
+  if (status === 401 || status === 403 || status === 500) return true;
+  return HARD_FAULT_RE.test(String(err.message || ""));
+}
+
 export function isRateLimitError(err) {
   if (!err) return false;
+  if (isHardFaultError(err) && err.status !== 429) return false;
   if (err instanceof RateLimitError) return true;
   if (err.name === "RateLimitError" || err.code === "RATE_LIMIT") return true;
   if (err.status === 429) return true;
-  return RATE_LIMIT_RE.test(String(err.message || ""));
+  const msg = String(err.message || "");
+  if (HARD_FAULT_RE.test(msg) && !/429|rate.?limit|too many requests/i.test(msg)) {
+    return false;
+  }
+  return RATE_LIMIT_RE.test(msg);
 }
 
 /**
@@ -42,11 +58,12 @@ export async function throwFromResponse(res) {
   const message =
     data.error || res.statusText || `Request failed (${res.status}).`;
   const retryAfterSec = Number(data.retryAfterSec);
-  if (
+  const looksRateLimited =
     res.status === 429 ||
     data.code === "RATE_LIMIT" ||
-    RATE_LIMIT_RE.test(message)
-  ) {
+    (RATE_LIMIT_RE.test(message) && !HARD_FAULT_RE.test(message));
+
+  if (looksRateLimited && res.status !== 401 && res.status !== 403) {
     throw new RateLimitError(message, {
       retryAfterMs:
         (Number.isFinite(retryAfterSec) && retryAfterSec > 0

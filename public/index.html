@@ -31,17 +31,42 @@
       </p>
 
       <div
+        id="context-banner"
+        class="context-banner hidden"
+        role="alert"
+        hidden
+      ></div>
+
+      <div
         id="upload-zone"
         class="upload-zone"
         role="button"
         tabindex="0"
         aria-label="Upload PDF deck"
       >
-        <h2>Drop your deck PDF</h2>
-        <p>Or click to browse · one file · ≤ 20 MB · ≤ 40 pages</p>
-        <p class="hint">
-          Have a .pptx? Export it as PDF first — File → Export → PDF.
-        </p>
+        <div class="upload-zone-idle" data-upload-idle>
+          <h2>Drop your deck PDF</h2>
+          <p>Or click to browse · one file · ≤ 20 MB · ≤ 40 pages</p>
+          <p class="hint">
+            Have a .pptx? Export it as PDF first — File → Export → PDF.
+          </p>
+        </div>
+        <div class="upload-zone-success" data-upload-success hidden>
+          <span class="upload-check" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="1.5" />
+              <path
+                d="M8.5 14.2L12.2 17.8L19.5 10.2"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <h2>Successful Upload!</h2>
+          <p>Your deck is registered — finish setup below.</p>
+        </div>
         <input id="file-input" type="file" accept="application/pdf,.pdf" hidden />
       </div>
       <p id="upload-error" class="error-inline hidden" role="alert"></p>

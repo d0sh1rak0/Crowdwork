@@ -8,17 +8,22 @@ import {
   getPurposeString,
   getResolvedLanguage,
   getState,
+  navigateSafely,
   setDeck,
   setGenerating,
   setScriptSlides,
   slidesForApi,
   updateSetup,
 } from "./store.js";
+import { consumeUploadBanner } from "./utilities/navigationBanner.js";
 import { estimateSeconds } from "./utils.js";
 
 const zone = document.getElementById("upload-zone");
 const input = document.getElementById("file-input");
 const errorEl = document.getElementById("upload-error");
+const contextBanner = document.getElementById("context-banner");
+const uploadIdle = zone?.querySelector("[data-upload-idle]");
+const uploadSuccess = zone?.querySelector("[data-upload-success]");
 const thumbSection = document.getElementById("thumb-section");
 const thumbs = document.getElementById("thumbs");
 const progress = document.getElementById("progress");
@@ -60,6 +65,30 @@ function showError(msg) {
   }
   errorEl.textContent = msg;
   errorEl.classList.remove("hidden");
+}
+
+function setUploadSuccessState(success) {
+  if (!zone) return;
+  zone.classList.toggle("is-success", success);
+  if (uploadIdle) uploadIdle.hidden = success;
+  if (uploadSuccess) uploadSuccess.hidden = !success;
+  zone.setAttribute(
+    "aria-label",
+    success ? "Successful upload" : "Upload PDF deck"
+  );
+}
+
+function showContextBanner(message, tone = "error") {
+  if (!contextBanner || !message) return;
+  contextBanner.textContent = message;
+  contextBanner.dataset.tone = tone;
+  contextBanner.hidden = false;
+  contextBanner.classList.remove("hidden");
+}
+
+function hydrateContextBanner() {
+  const banner = consumeUploadBanner();
+  if (banner) showContextBanner(banner.message, banner.tone);
 }
 
 function renderChips() {
@@ -113,16 +142,19 @@ async function handleFile(file) {
   showError(null);
   const validation = validatePdfFile(file);
   if (validation) {
+    setUploadSuccessState(false);
     showError(validation);
     return;
   }
+
+  // Immediate success confirmation before PDF parsing / any later transition
+  setUploadSuccessState(true);
 
   thumbs.innerHTML = "";
   thumbSection.classList.remove("hidden");
   form.classList.remove("visible");
   progress.textContent = "Reading slide 0…";
   zone.style.pointerEvents = "none";
-  zone.style.opacity = "0.6";
 
   try {
     const { slides, title } = await processPdf(file, ({ current, total, slide }) => {
@@ -138,12 +170,13 @@ async function handleFile(file) {
     parsedStack.classList.add("hidden");
     progress.textContent = `${slides.length} slides ready`;
     form.classList.add("visible");
+    setUploadSuccessState(true);
   } catch (err) {
+    setUploadSuccessState(false);
     showError(err instanceof Error ? err.message : "Could not read this PDF.");
     thumbSection.classList.add("hidden");
   } finally {
     zone.style.pointerEvents = "";
-    zone.style.opacity = "";
   }
 }
 
@@ -274,7 +307,7 @@ async function writeScript() {
       if (!applyParsedScript()) return;
     }
     writeBtn.disabled = true;
-    window.location.href = "/script";
+    navigateSafely("/script");
     return;
   }
 
@@ -299,7 +332,7 @@ async function writeScript() {
     setGenerating(true);
     writeBtn.disabled = true;
     writeBtn.textContent = "Writing your script…";
-    window.location.href = "/script";
+    navigateSafely("/script");
   } catch (err) {
     setGenerating(false);
     toastRetry(
@@ -334,6 +367,7 @@ if (existing.slides.length) {
       el.innerHTML = `<img src="${slide.imageDisplay}" alt="Slide ${slide.n}" /><span>${slide.n}</span>`;
       thumbs.appendChild(el);
     });
+    setUploadSuccessState(true);
   }
   form.classList.add("visible");
   purpose.value = existing.setup.purpose || "";
@@ -345,4 +379,5 @@ if (existing.slides.length) {
   setup = { ...existing.setup };
 }
 
+hydrateContextBanner();
 renderChips();

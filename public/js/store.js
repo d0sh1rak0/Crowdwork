@@ -218,8 +218,37 @@ export function slidesForApi() {
   });
 }
 
-window.addEventListener("beforeunload", (e) => {
+/** When true, internal app navigations skip the native "Leave site?" prompt */
+let safeNavigation = false;
+
+/**
+ * Call immediately before intentional in-app transitions
+ * (upload → script, back to upload, script → rehearse, etc.).
+ */
+export function markSafeNavigation() {
+  safeNavigation = true;
+}
+
+export function clearSafeNavigation() {
+  safeNavigation = false;
+}
+
+export function isSafeNavigation() {
+  return safeNavigation;
+}
+
+function onBeforeUnload(e) {
+  if (safeNavigation) return;
   if (!hasDeck()) return;
   e.preventDefault();
   e.returnValue = "";
-});
+}
+
+window.addEventListener("beforeunload", onBeforeUnload);
+
+/** Navigate without triggering the leave-site dialog */
+export function navigateSafely(url, { replace = false } = {}) {
+  markSafeNavigation();
+  if (replace) window.location.replace(url);
+  else window.location.href = url;
+}

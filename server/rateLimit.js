@@ -5,6 +5,9 @@
 const RATE_LIMIT_RE =
   /429|rate.?limit|too many requests|RESOURCE_EXHAUSTED|quota.?exceeded|exceeded.+quota|overloaded|capacity|throttl|try again later|resource has been exhausted/i;
 
+const HARD_FAULT_RE =
+  /api.?key|invalid.?key|unauthorized|permission.?denied|authentication|forbidden|not configured|is not set/i;
+
 /**
  * @param {unknown} err
  * @returns {{ isRateLimit: boolean, retryAfterSec: number, message: string }}
@@ -33,6 +36,15 @@ export function inspectRateLimitError(err) {
           : 12 + Math.floor(Math.random() * 4) // 12–15s default window
     )
   );
+
+  // Auth / missing-key faults are hard errors — never treat as soft 429 recovery
+  if (
+    status === 401 ||
+    status === 403 ||
+    (HARD_FAULT_RE.test(message) && status !== 429)
+  ) {
+    return { isRateLimit: false, retryAfterSec, message };
+  }
 
   const isRateLimit =
     status === 429 ||

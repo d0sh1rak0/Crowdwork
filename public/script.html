@@ -100,12 +100,20 @@
       </div>
     </div>
 
-    <div id="empty" class="page hidden" style="text-align: center; padding-top: 6rem">
-      <p class="font-display" style="font-size: 1.25rem">Script not ready</p>
-      <p style="color: var(--muted); margin-top: 0.5rem">
+    <div id="empty" class="page gen-error-panel hidden" role="alert">
+      <p class="gen-error-kicker font-utility">Generation error</p>
+      <p id="gen-error-title" class="font-display gen-error-title">Script not ready</p>
+      <p id="gen-error-detail" class="gen-error-detail">
         Generation may have failed. Go back to retry, or upload a new deck.
       </p>
-      <a href="/" style="display: inline-block; margin-top: 1.5rem">Back to upload</a>
+      <div class="gen-error-actions">
+        <button id="gen-error-retry" class="btn btn-outline" type="button" hidden>
+          Try again
+        </button>
+        <button id="gen-error-back" class="btn btn-primary" type="button">
+          Back to Upload Page
+        </button>
+      </div>
     </div>
 
     <div id="studio" class="studio hidden">

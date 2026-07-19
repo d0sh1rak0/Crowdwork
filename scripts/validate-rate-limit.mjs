@@ -9,6 +9,7 @@ import {
 } from "../public/js/services/GenerationRetryPipeline.js";
 import {
   RateLimitError,
+  isHardFaultError,
   isRateLimitError,
 } from "../public/js/utilities/ApiErrors.js";
 
@@ -18,11 +19,14 @@ import {
   assert.equal(a.isRateLimit, true);
   assert.ok(a.retryAfterSec >= 10 && a.retryAfterSec <= 90);
 
-  const b = inspectRateLimitError(new Error("RESOURCE_EXHAUSTED: quota"));
+  const b = inspectRateLimitError(new Error("RESOURCE_EXHAUSTED: quota exceeded"));
   assert.equal(b.isRateLimit, true);
 
   const c = inspectRateLimitError(new Error("slide parse failed"));
   assert.equal(c.isRateLimit, false);
+
+  const d = inspectRateLimitError(new Error("GEMINI_API_KEY is not set."));
+  assert.equal(d.isRateLimit, false);
 }
 
 // Client typed error
@@ -34,6 +38,13 @@ import {
     isRateLimitError(new Error("429 Too Many Requests from upstream")),
     true
   );
+  assert.equal(isRateLimitError(new Error("Invalid API key")), false);
+  assert.equal(isHardFaultError(new Error("Invalid API key")), true);
+  const serverErr = Object.assign(new Error("Internal Server Error"), {
+    status: 500,
+  });
+  assert.equal(isRateLimitError(serverErr), false);
+  assert.equal(isHardFaultError(serverErr), true);
 }
 
 // Backoff window lands in predictive 10–45s band

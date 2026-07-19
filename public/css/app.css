@@ -232,18 +232,62 @@ a:hover {
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 60%, transparent);
   cursor: pointer;
-  transition: 180ms ease-out;
+  transition:
+    border-color 220ms ease,
+    background 220ms ease,
+    box-shadow 280ms ease,
+    transform 220ms ease;
 }
 .upload-zone:hover,
 .upload-zone.dragover {
   border-color: var(--amber);
   background: color-mix(in srgb, var(--amber) 10%, transparent);
 }
+.upload-zone.is-success {
+  border-style: solid;
+  border-color: #FFD60A;
+  background: color-mix(in srgb, #FFD60A 8%, #000000);
+  box-shadow:
+    0 0 0 1px rgba(255, 214, 10, 0.35),
+    0 0 28px rgba(255, 214, 10, 0.18);
+  cursor: default;
+  animation: upload-success-in 320ms ease-out;
+}
+@keyframes upload-success-in {
+  from {
+    opacity: 0.85;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.upload-zone-idle,
+.upload-zone-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.upload-zone-success[hidden],
+.upload-zone-idle[hidden] {
+  display: none !important;
+}
+.upload-check {
+  display: grid;
+  place-items: center;
+  margin-bottom: 0.75rem;
+  color: #FFD60A;
+}
 .upload-zone h2 {
   margin: 0;
   font-family: var(--font-display);
   font-size: 1.25rem;
   font-weight: 500;
+}
+.upload-zone.is-success h2 {
+  color: #FFD60A;
 }
 .upload-zone p {
   margin: 0.5rem 0 0;
@@ -255,10 +299,65 @@ a:hover {
   max-width: 22rem;
 }
 
+.context-banner {
+  margin: 1.5rem auto 0;
+  max-width: 36rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  border: 1px solid rgba(229, 83, 60, 0.45);
+  background: rgba(229, 83, 60, 0.12);
+  color: #ffb4a8;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
+}
+.context-banner[data-tone="info"] {
+  border-color: rgba(255, 214, 10, 0.4);
+  background: rgba(255, 214, 10, 0.08);
+  color: #ffe566;
+}
+.context-banner.hidden,
+.context-banner[hidden] {
+  display: none !important;
+}
+
 .error-inline {
   margin-top: 0.75rem;
   color: var(--over);
   font-size: 0.875rem;
+}
+
+.gen-error-panel {
+  text-align: center;
+  padding: 6rem 1.25rem 4rem;
+  max-width: 28rem;
+  margin: 0 auto;
+}
+.gen-error-kicker {
+  margin: 0 0 0.5rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #FFD60A;
+}
+.gen-error-title {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.gen-error-detail {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.gen-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  margin-top: 1.75rem;
 }
 
 .thumb-grid {
