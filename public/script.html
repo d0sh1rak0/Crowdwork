@@ -60,6 +60,46 @@
       </div>
     </div>
 
+    <!-- Rate-limit recovery: Jet Black / Electric Yellow predictive dashboard -->
+    <div
+      id="rate-limit-dash"
+      class="rate-limit-dash"
+      hidden
+      aria-hidden="true"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="rate-limit-dash-inner">
+        <p class="rate-limit-brand font-display">Crowdwork</p>
+        <h1 class="rate-limit-headline font-display" data-rl-headline>
+          This is taking a little longer than usual…
+        </h1>
+        <p class="rate-limit-reel font-utility" data-rl-reel>
+          Queueing server instance…
+        </p>
+        <div
+          class="rate-limit-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          aria-label="Retry progress"
+        >
+          <div class="rate-limit-bar" data-rl-bar></div>
+        </div>
+        <p class="rate-limit-meta font-utility" data-rl-meta>
+          Holding your deck in the queue
+        </p>
+        <button
+          type="button"
+          class="btn rate-limit-back"
+          data-rl-back
+        >
+          Back to Upload Page
+        </button>
+      </div>
+    </div>
+
     <div id="empty" class="page hidden" style="text-align: center; padding-top: 6rem">
       <p class="font-display" style="font-size: 1.25rem">Script not ready</p>
       <p style="color: var(--muted); margin-top: 0.5rem">

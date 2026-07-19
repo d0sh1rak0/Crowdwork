@@ -1722,3 +1722,121 @@ a:hover {
     width: 100%;
   }
 }
+
+/* Rate-limit recovery dashboard — Jet Black / Electric Yellow */
+.rate-limit-dash {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 15%, rgba(255, 214, 10, 0.08), transparent 55%),
+    #000000;
+  color: #f2ede3;
+}
+.rate-limit-dash[hidden] {
+  display: none !important;
+}
+.rate-limit-dash-inner {
+  width: min(520px, 100%);
+  text-align: center;
+  animation: rl-dash-in 320ms ease-out;
+}
+@keyframes rl-dash-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rate-limit-brand {
+  margin: 0 0 1.25rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  color: #FFD60A;
+}
+.rate-limit-headline {
+  margin: 0 0 0.85rem;
+  font-size: clamp(1.35rem, 3.6vw, 1.85rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: #ffffff;
+}
+.rate-limit-reel {
+  margin: 0 0 1.75rem;
+  min-height: 1.35em;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  color: rgba(255, 214, 10, 0.78);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.rate-limit-reel.is-tick {
+  animation: rl-reel-tick 280ms ease;
+}
+@keyframes rl-reel-tick {
+  0% {
+    opacity: 0.35;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rate-limit-track {
+  height: 4px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  border: 1px solid rgba(255, 214, 10, 0.22);
+}
+.rate-limit-bar {
+  height: 100%;
+  width: 0%;
+  background: #FFD60A;
+  box-shadow: 0 0 18px rgba(255, 214, 10, 0.35);
+  transition: width 80ms linear;
+}
+.rate-limit-meta {
+  margin: 0.85rem 0 1.75rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(242, 237, 227, 0.55);
+}
+.rate-limit-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0.75rem 1.35rem;
+  border: 1px solid #FFD60A;
+  border-radius: 8px;
+  background: #FFD60A;
+  color: #000000;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.rate-limit-back:hover {
+  background: #ffe566;
+  box-shadow: 0 0 0 1px #FFD60A, 0 10px 28px rgba(255, 214, 10, 0.2);
+  transform: translateY(-1px);
+}
+.rate-limit-back:active {
+  transform: translateY(0);
+}
+.rate-limit-back:focus-visible {
+  outline: 2px solid #FFD60A;
+  outline-offset: 3px;
+}

@@ -1,4 +1,6 @@
-import { fetchPaceAdvice, generateScript, speakText, toastRetry } from "./api.js";
+import { fetchPaceAdvice, speakText, toastRetry } from "./api.js";
+import RateLimitDashboard from "./components/RateLimitDashboard.js";
+import { generateScriptWithRecovery } from "./services/GenerationRetryPipeline.js";
 import {
   getPurposeString,
   getResolvedLanguage,
@@ -44,6 +46,10 @@ const regenRow = document.getElementById("regen-row");
 const regenInput = document.getElementById("regen-input");
 const mobileMeta = document.getElementById("mobile-meta");
 const btnReset = document.getElementById("btn-reset");
+const rateLimitRoot = document.getElementById("rate-limit-dash");
+const rateLimitDash = rateLimitRoot
+  ? new RateLimitDashboard(rateLimitRoot)
+  : null;
 
 const TONES = [
   { id: "confident", label: "Confident" },
@@ -53,6 +59,8 @@ const TONES = [
 ];
 
 let audioEl = null;
+/** @type {AbortController | null} */
+let generationAbort = null;
 
 function mapScripts(slides) {
   return slides.map((s) => ({
@@ -66,6 +74,86 @@ function mapScripts(slides) {
   }));
 }
 
+function abortGenerationPipeline() {
+  if (generationAbort) {
+    try {
+      generationAbort.abort();
+    } catch {
+      /* ignore */
+    }
+    generationAbort = null;
+  }
+  rateLimitDash?.hide();
+}
+
+/** Escape hatch — cancel retries and return to upload canvas */
+function escapeToUpload() {
+  abortGenerationPipeline();
+  sessionStorage.removeItem("crowdwork-pending-generate");
+  setGenerating(false);
+  window.location.href = "/";
+}
+
+rateLimitDash?.onBack(escapeToUpload);
+
+/**
+ * Generate with silent 429 recovery + predictive dashboard.
+ * Non-rate-limit failures still surface via the caller.
+ */
+async function runGenerateWithRecovery(payload) {
+  abortGenerationPipeline();
+  generationAbort = new AbortController();
+  const { signal } = generationAbort;
+
+  setGenerating(true);
+  showLoading();
+
+  try {
+    const data = await generateScriptWithRecovery(payload, {
+      signal,
+      onEnterRecovery: ({ attempt, waitMs }) => {
+        // Rate limits are not session failures — keep the generating shell
+        setGenerating(true);
+        showLoading();
+        rateLimitDash?.show();
+        rateLimitDash?.setProgress(0, {
+          attempt,
+          waitMs,
+          remainingMs: waitMs,
+        });
+      },
+      onWaitProgress: ({ attempt, waitMs, progress, remainingMs }) => {
+        if (!rateLimitDash?.visible) rateLimitDash?.show();
+        rateLimitDash?.setProgress(progress, {
+          attempt,
+          waitMs,
+          remainingMs,
+        });
+      },
+      onRetryFire: ({ attempt }) => {
+        rateLimitDash?.setProgress(1, {
+          attempt,
+          remainingMs: 0,
+          waitMs: 0,
+        });
+      },
+    });
+    rateLimitDash?.hide();
+    return data;
+  } catch (err) {
+    if (err?.name !== "AbortError") {
+      rateLimitDash?.hide();
+    }
+    throw err;
+  } finally {
+    if (generationAbort && generationAbort.signal.aborted) {
+      generationAbort = null;
+    } else {
+      generationAbort = null;
+    }
+  }
+}
+
 async function runPendingGenerate() {
   const raw = sessionStorage.getItem("crowdwork-pending-generate");
   // Orphaned flag from a refresh mid-request — don't spin forever
@@ -74,16 +162,18 @@ async function runPendingGenerate() {
     return false;
   }
 
-  setGenerating(true);
-  showLoading();
   try {
     const payload = JSON.parse(raw);
-    const data = await generateScript(payload);
+    const data = await runGenerateWithRecovery(payload);
     // Only clear pending after a successful write
     sessionStorage.removeItem("crowdwork-pending-generate");
     setScriptSlides(mapScripts(data.slides));
     return true;
   } catch (err) {
+    if (err?.name === "AbortError") {
+      setGenerating(false);
+      return false;
+    }
     setGenerating(false);
     toastRetry(err instanceof Error ? err.message : "Script generation failed.", () => {
       runPendingGenerate().then(() => render());
@@ -100,12 +190,14 @@ function showLoading() {
 }
 
 function showEmpty() {
+  if (rateLimitDash?.visible) return;
   loading.classList.add("hidden");
   empty.classList.remove("hidden");
   studio.classList.add("hidden");
 }
 
 function showStudio() {
+  rateLimitDash?.hide();
   loading.classList.add("hidden");
   empty.classList.add("hidden");
   studio.classList.remove("hidden");
@@ -207,7 +299,7 @@ document.getElementById("regen-apply").addEventListener("click", async () => {
     const neighbors = state.scriptSlides
       .filter((s) => Math.abs(s.n - current.n) === 1)
       .map((s) => ({ n: s.n, script: s.script }));
-    const data = await generateScript({
+    const data = await runGenerateWithRecovery({
       deckTitle: state.deckTitle,
       purpose: getPurposeString(),
       audience: state.setup.audience || undefined,
@@ -221,11 +313,14 @@ document.getElementById("regen-apply").addEventListener("click", async () => {
     });
     const updated = data.slides.find((s) => s.n === current.n) || data.slides[0];
     updateSlideFromRegen(current.n, updated);
+    setGenerating(false);
     regenRow.classList.remove("open");
     regenInput.value = "";
     toast(`Slide ${current.n} rewritten.`);
     render();
   } catch (err) {
+    if (err?.name === "AbortError") return;
+    setGenerating(false);
     toastRetry(err instanceof Error ? err.message : "Regeneration failed.", () =>
       document.getElementById("regen-apply").click()
     );
@@ -505,11 +600,9 @@ document.getElementById("tone-cancel").addEventListener("click", () => {
 async function regenerateAll(tone) {
   setTone(tone);
   updateSetup({ tone });
-  setGenerating(true);
-  showLoading();
   try {
     const state = getState();
-    const data = await generateScript({
+    const data = await runGenerateWithRecovery({
       deckTitle: state.deckTitle,
       purpose: getPurposeString(),
       audience: state.setup.audience || undefined,
@@ -524,6 +617,7 @@ async function regenerateAll(tone) {
     toast("Full script rewritten.");
     render();
   } catch (err) {
+    if (err?.name === "AbortError") return;
     setGenerating(false);
     toastRetry(err instanceof Error ? err.message : "Regeneration failed.", () =>
       regenerateAll(tone)

@@ -10,6 +10,10 @@ import {
 } from "./prompts.js";
 import { generateJson, getGeminiModel, slideParts } from "./gemini.js";
 import { toWhisperWav } from "./audioConvert.js";
+import {
+  inspectRateLimitError,
+  sendRateLimitResponse,
+} from "./rateLimit.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -174,6 +178,10 @@ export function createApiRouter() {
       res.json({ slides: all });
     } catch (err) {
       console.error("[generate-script]", err);
+      const rate = inspectRateLimitError(err);
+      if (rate.isRateLimit) {
+        return sendRateLimitResponse(res, err);
+      }
       res.status(500).json({
         error: err instanceof Error ? err.message : "Script generation failed.",
       });

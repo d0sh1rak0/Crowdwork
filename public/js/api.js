@@ -1,4 +1,5 @@
 import NetworkClient from "./utilities/NetworkClient.js";
+import { throwFromResponse } from "./utilities/ApiErrors.js";
 import { toast } from "./utils.js";
 
 async function parseError(res) {
@@ -11,8 +12,14 @@ async function parseError(res) {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
+  const external = options.signal;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onExternalAbort = () => controller.abort();
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener("abort", onExternalAbort, { once: true });
+  }
   try {
     return await NetworkClient.fetch(url, {
       ...options,
@@ -20,15 +27,21 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
     });
   } catch (err) {
     if (err?.name === "AbortError") {
+      if (external?.aborted) throw err;
       throw new Error("Script generation timed out. Try fewer slides or retry.");
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    external?.removeEventListener("abort", onExternalAbort);
   }
 }
 
-export async function generateScript(payload) {
+/**
+ * @param {object} payload
+ * @param {{ signal?: AbortSignal }} [options]
+ */
+export async function generateScript(payload, options = {}) {
   // Large decks + slide images can take a while; hard-cap so UI never spins forever
   const slideCount = payload?.slides?.length || 1;
   const timeoutMs = Math.min(180000, 45000 + slideCount * 8000);
@@ -38,10 +51,11 @@ export async function generateScript(payload) {
       method: "POST",
       headers: NetworkClient.getJsonHeaders(),
       body: JSON.stringify(payload),
+      signal: options.signal,
     },
     timeoutMs
   );
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) await throwFromResponse(res);
   return res.json();
 }
 
