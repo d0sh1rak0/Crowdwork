@@ -21,7 +21,8 @@ const MIME_CANDIDATES = [
   "audio/wav",
 ];
 
-const SLICE_MS = 1000;
+// 2.5s whole-file slices — 1s MediaRecorder WebMs often have ~0s duration for Whisper
+const SLICE_MS = 2500;
 
 function extensionForMime(mimeType) {
   const base = String(mimeType || "")
@@ -290,12 +291,8 @@ class SessionCoordinator {
 
       setTimeout(() => {
         if (rec.state === "recording") {
-          try {
-            // Flush any remaining bytes, then stop to finalize container
-            rec.requestData();
-          } catch {
-            /* ignore */
-          }
+          // Do NOT call requestData() first — mid-stream flushes break WebM
+          // duration metadata and Groq returns "Audio file is too short".
           try {
             rec.stop();
           } catch {
@@ -315,7 +312,10 @@ class SessionCoordinator {
   async _shipBlob(blob) {
     if (!blob || blob.size === 0) return null;
 
-    const mimeType = blob.type || this.mimeType || "audio/webm";
+    // Strip codec params for uploads (audio/webm;codecs=opus → audio/webm)
+    const mimeType = String(blob.type || this.mimeType || "audio/webm")
+      .split(";")[0]
+      .trim();
     const ext = extensionForMime(mimeType);
 
     const whole = await looksLikeWholeContainer(blob, mimeType);
@@ -384,9 +384,9 @@ class SessionCoordinator {
     }
     this._busy = true;
     try {
-      // Shorter final flush so slide changes stay snappy
+      // Final flush still needs enough audio for Whisper duration checks
       const blob = await this._captureWholeSlice(
-        Math.min(800, this._sliceMs)
+        Math.min(2000, this._sliceMs)
       );
       if (!blob || blob.size < 200) return null;
       return await this._shipBlob(blob);

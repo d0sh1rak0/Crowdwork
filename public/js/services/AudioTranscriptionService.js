@@ -95,6 +95,12 @@ class AudioTranscriptionService {
       });
       return this._finalize(text, language);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Short-slice / empty-PCM is recoverable — don't crash the ticker
+      if (/too short|no usable speech|empty audio/i.test(msg)) {
+        console.warn("[STT] Skipped unusable slice:", msg);
+        return "";
+      }
       console.error("[STT] Pipeline transmission failure:", err);
       throw err;
     } finally {

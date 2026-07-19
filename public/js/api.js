@@ -82,11 +82,10 @@ export async function transcribeAudio(blobOrForm, language, meta = {}) {
       `[API] POST /api/transcribe → mimeType=${mimeType} size=${blobOrForm?.size ?? 0}B file=${filename}`
     );
     form = new FormData();
-    // Prefer "file" (Whisper-style) and keep "audio" for backward compatibility
+    // Single field only — duplicate file+audio confused some proxies/multer paths
     form.append("file", blobOrForm, filename);
-    form.append("audio", blobOrForm, filename);
     form.append("language", language || "en");
-    form.append("mimeType", mimeType);
+    form.append("mimeType", mimeType.split(";")[0].trim());
   }
 
   const res = await NetworkClient.fetch("/api/transcribe", {

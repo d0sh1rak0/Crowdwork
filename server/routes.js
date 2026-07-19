@@ -9,6 +9,7 @@ import {
   parseJsonLoose,
 } from "./prompts.js";
 import { generateJson, getGeminiModel, slideParts } from "./gemini.js";
+import { toWhisperWav } from "./audioConvert.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -318,7 +319,7 @@ ${deck}`,
     async (req, res) => {
       try {
         const uploaded =
-          req.files?.audio?.[0] || req.files?.file?.[0] || req.file;
+          req.files?.file?.[0] || req.files?.audio?.[0] || req.file;
         if (!uploaded) {
           return res.status(400).json({ error: "Missing audio file." });
         }
@@ -331,16 +332,49 @@ ${deck}`,
 
         const groq = new Groq({ apiKey: key });
         const lang = req.body.language === "ru" ? "ru" : "en";
-        const mimeType =
-          req.body.mimeType || uploaded.mimetype || "audio/webm";
+        const rawMime = String(
+          req.body.mimeType || uploaded.mimetype || "audio/webm"
+        );
+        const mimeType = rawMime.split(";")[0].trim() || "audio/webm";
         const filename = uploaded.originalname || "recording.webm";
+        const ext =
+          (filename.split(".").pop() || mimeType.split("/")[1] || "webm")
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "") || "webm";
 
         console.log(
           `[transcribe] received mimeType=${mimeType} size=${uploaded.size}B file=${filename} lang=${lang}`
         );
 
-        const file = new File([uploaded.buffer], filename, {
-          type: mimeType,
+        // Browser MediaRecorder WebM often has broken duration → Groq "too short".
+        // Normalize to 16kHz mono WAV before Whisper.
+        let whisperBuf = uploaded.buffer;
+        let whisperMime = mimeType;
+        let whisperName = filename;
+        try {
+          const wav = await toWhisperWav(uploaded.buffer, ext);
+          whisperBuf = wav.buffer;
+          whisperMime = wav.mimeType;
+          whisperName = wav.filename;
+          console.log(
+            `[transcribe] normalized → wav size=${wav.buffer.length}B duration≈${wav.durationSec.toFixed(2)}s`
+          );
+          if (wav.durationSec < 0.05 && wav.buffer.length < 2000) {
+            return res.status(400).json({
+              error:
+                "Audio slice had no usable speech frames (duration ~0s). Keep speaking for a full second.",
+              text: "",
+            });
+          }
+        } catch (convErr) {
+          console.warn(
+            "[transcribe] wav convert failed, trying raw upload:",
+            convErr.message || convErr
+          );
+        }
+
+        const file = new File([whisperBuf], whisperName, {
+          type: whisperMime,
         });
 
         const result = await groq.audio.transcriptions.create({
@@ -352,13 +386,18 @@ ${deck}`,
 
         const text = result.text || "";
         console.log(
-          `[transcribe] whisper words=${text.trim() ? text.trim().split(/\s+/).length : 0}`
+          `[transcribe] whisper words=${text.trim() ? text.trim().split(/\s+/).length : 0} text=${JSON.stringify(text.slice(0, 80))}`
         );
         res.json({ text });
       } catch (err) {
         console.error("[transcribe]", err);
-        res.status(500).json({
-          error: err instanceof Error ? err.message : "Transcription failed.",
+        const msg = err instanceof Error ? err.message : "Transcription failed.";
+        const tooShort = /too short/i.test(msg);
+        res.status(tooShort ? 400 : 500).json({
+          error: tooShort
+            ? "Whisper rejected the audio slice as too short. Try speaking continuously for 2+ seconds."
+            : msg,
+          text: "",
         });
       }
     }
