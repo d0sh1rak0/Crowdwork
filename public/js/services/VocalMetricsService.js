@@ -120,8 +120,9 @@ class VocalMetricsService {
     const clean = String(text || "").trim();
     if (!clean) return null;
 
-    // Keep pacing clock in lockstep with any STT ingest path
-    pacingTelemetry.registerSpeechActivity({ text: clean });
+    // Pause clock only — SessionCoordinator already registered the delta
+    // via registerClearSpeech(). Re-counting here doubled WPM (~300+ spikes).
+    pacingTelemetry.touchSpeechClock();
 
     const now = performance.now();
     const wasPaused = this.pauseActive;
@@ -208,13 +209,9 @@ class VocalMetricsService {
     this._pruneWords(now);
     if (!this.wordEvents.length) return 0;
     const words = this.wordEvents.reduce((a, e) => a + e.n, 0);
-    const spanMs = Math.max(
-      1000,
-      now - (this.wordEvents[0]?.t || now) 
-    );
-    // Use full 10s window once we have enough history, else actual span
-    const windowUsed = Math.min(this.windowMs, Math.max(spanMs, 3000));
-    return Math.round((words / windowUsed) * 60000);
+    // Stable rolling window denominator (never divide by sub-second spans)
+    const windowSeconds = Math.max(1, this.windowMs / 1000);
+    return Math.round((words / windowSeconds) * 60);
   }
 
   _isMonotone() {

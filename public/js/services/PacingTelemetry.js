@@ -2,9 +2,12 @@
  * PacingTelemetry — Vocal Attention Matrix engine.
  *
  * - Pause clock (≥1.5s without STT words)
- * - 5s moving WPM window with configurable healthy band (default ~135–180)
+ * - 5s moving WPM window (stable rolling average — never divides by tiny spans)
  * - Clear / unclear speech classification
  * - Live pacing overlay events (RUSHING / TOO SLOW)
+ *
+ * Word tracking uses UNIQUE delta packets only — never re-counts cumulative
+ * transcript history or double-ingested chunks from parallel code paths.
  */
 
 import audioTranscriptionService from "./AudioTranscriptionService.js";
@@ -14,7 +17,10 @@ import {
 } from "./paceConfig.js";
 
 const PAUSE_THRESHOLD_MS = 1500;
+/** Stable rolling buffer used as the WPM denominator */
 const WPM_WINDOW_MS = 5000;
+/** Hard floor so (words / seconds) never explodes on sub-second snaps */
+const MIN_WINDOW_SEC = 1;
 const DEFAULT_BANDS = derivePaceBands(DEFAULT_PACE_TARGET_WPM);
 const HEALTHY_MIN = DEFAULT_BANDS.healthyMin;
 const HEALTHY_MAX = DEFAULT_BANDS.healthyMax;
@@ -31,6 +37,36 @@ function wordCount(text) {
   return t.split(/\s+/).filter(Boolean).length;
 }
 
+function normalizeText(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Extract only newly arrived words vs the previous packet.
+ * Handles both isolated slice transcripts and cumulative STT strings.
+ */
+export function extractDeltaWords(previousText, incomingText) {
+  const prev = normalizeText(previousText);
+  const next = normalizeText(incomingText);
+  if (!next) return { deltaText: "", newWords: 0 };
+  if (!prev) {
+    return { deltaText: next, newWords: wordCount(next) };
+  }
+  if (next === prev) {
+    return { deltaText: "", newWords: 0 };
+  }
+  // Cumulative transcript grew by appending
+  if (next.startsWith(prev)) {
+    const deltaText = next.slice(prev.length).trim();
+    return { deltaText, newWords: wordCount(deltaText) };
+  }
+  // Isolated chunk (typical Whisper slice) — count whole packet once
+  return { deltaText: next, newWords: wordCount(next) };
+}
+
 function isUnclearText(text) {
   const clean = String(text || "").trim();
   if (!clean) return true;
@@ -44,7 +80,7 @@ class PacingTelemetry {
   constructor() {
     this.lastWordTimestamp = Date.now();
     this.pauseThresholdMs = PAUSE_THRESHOLD_MS;
-    this.wordEvents = []; // { t, n }
+    this.wordEvents = []; // { t, n } — delta word counts only
     this.wpm = 0;
     this.pacingBand = "idle"; // idle | slow | healthy | rush
     this.clarity = "unknown"; // clear | unclear | unknown
@@ -71,6 +107,11 @@ class PacingTelemetry {
     this._lastRushAt = 0;
     this._lastSlowAt = 0;
     this._healthySince = null;
+    /** Last ingested transcript packet (for cumulative-delta subtraction) */
+    this._lastPacketText = "";
+    /** Dedup guard — ignore identical packet re-registered within a short window */
+    this._lastPacketAt = 0;
+    this._windowStartedAt = null;
   }
 
   /**
@@ -94,25 +135,82 @@ class PacingTelemetry {
   }
 
   /**
-   * CRITICAL: call on every non-empty Whisper transcript.
+   * Refresh the pause clock WITHOUT adding words.
+   * Use when another path already registered the delta packet.
+   */
+  touchSpeechClock() {
+    this.lastWordTimestamp = Date.now();
+    const wasPaused = this._pauseLatched;
+    this._pauseLatched = false;
+    if (wasPaused) {
+      const evt = {
+        type: "speech",
+        at: this.lastWordTimestamp,
+        text: "",
+        words: 0,
+        wpm: this.wpm,
+        resumed: true,
+      };
+      this._onSpeech?.(evt);
+      this._emit(evt);
+    }
+  }
+
+  /**
+   * CRITICAL: call on every non-empty Whisper transcript delta.
    * Halts attention decay by refreshing lastWordTimestamp.
+   * Only UNIQUE new words are added to the rolling WPM buffer.
    */
   registerSpeechActivity(meta = {}) {
     this.lastWordTimestamp = Date.now();
     const wasPaused = this._pauseLatched;
     this._pauseLatched = false;
     const text = meta.text || "";
-    const n = wordCount(text);
-    if (n > 0) {
-      this.wordEvents.push({ t: this.lastWordTimestamp, n });
-      this._pruneWords(this.lastWordTimestamp);
+
+    // Explicit empty touch (session arm) — no word accounting
+    if (!String(text).trim()) {
+      const evt = {
+        type: "speech",
+        at: this.lastWordTimestamp,
+        text: "",
+        words: 0,
+        wpm: this.wpm,
+        resumed: wasPaused,
+      };
+      this._onSpeech?.(evt);
+      this._emit(evt);
+      this._handlers.onWpm?.(this.wpm, this.pacingBand);
+      return evt;
     }
-    this.wpm = this.getWindowWpm();
+
+    const { deltaText, newWords } = extractDeltaWords(
+      this._lastPacketText,
+      text
+    );
+
+    // Identical re-ingest within 750ms (coordinator + metrics dual path) → ignore words
+    const now = this.lastWordTimestamp;
+    const isDupPacket =
+      normalizeText(text) === this._lastPacketText &&
+      now - this._lastPacketAt < 750;
+
+    let counted = 0;
+    if (!isDupPacket && newWords > 0) {
+      counted = newWords;
+      if (this._windowStartedAt == null) this._windowStartedAt = now;
+      this.wordEvents.push({ t: now, n: counted, delta: deltaText });
+      this._pruneWords(now);
+    }
+
+    this._lastPacketText = normalizeText(text) || this._lastPacketText;
+    this._lastPacketAt = now;
+
+    this.wpm = this.getWindowWpm({ log: counted > 0 });
     const evt = {
       type: "speech",
-      at: this.lastWordTimestamp,
+      at: now,
       text,
-      words: n,
+      words: counted,
       wpm: this.wpm,
       resumed: wasPaused,
     };
@@ -182,20 +280,44 @@ class PacingTelemetry {
   _pruneWords(now = Date.now()) {
     const cutoff = now - WPM_WINDOW_MS;
     this.wordEvents = this.wordEvents.filter((e) => e.t >= cutoff);
+    if (!this.wordEvents.length) {
+      this._windowStartedAt = null;
+    } else if (
+      this._windowStartedAt == null ||
+      this._windowStartedAt < this.wordEvents[0].t
+    ) {
+      this._windowStartedAt = this.wordEvents[0].t;
+    }
   }
 
-  /** Moving 5-second words-per-minute */
-  getWindowWpm() {
+  /**
+   * Stable 5-second rolling WPM.
+   * Always divides by the full window (floored at MIN_WINDOW_SEC) so
+   * sub-second speech bursts cannot spike to 300+.
+   * @param {{ log?: boolean }} [opts]
+   */
+  getWindowWpm(opts = {}) {
     const now = Date.now();
     this._pruneWords(now);
     if (!this.wordEvents.length) return 0;
-    const words = this.wordEvents.reduce((a, e) => a + e.n, 0);
-    const spanMs = Math.max(
-      1000,
-      now - (this.wordEvents[0]?.t || now)
-    );
-    const windowUsed = Math.min(WPM_WINDOW_MS, Math.max(spanMs, 2000));
-    return Math.round((words / windowUsed) * 60000);
+
+    const newWords = this.wordEvents.reduce((a, e) => a + e.n, 0);
+    // Fixed 5s rolling buffer denominator — never use a tiny fractional span
+    const windowSeconds = Math.max(MIN_WINDOW_SEC, WPM_WINDOW_MS / 1000);
+    const finalWPM = Math.round((newWords / windowSeconds) * 60);
+
+    if (opts.log) {
+      console.log(
+        "[WPM Calibration Check] Raw Delta Count:",
+        newWords,
+        "| Time Windows:",
+        windowSeconds,
+        "| Calculated Result WPM:",
+        finalWPM
+      );
+    }
+
+    return finalWPM;
   }
 
   _evaluatePacingBand(fromSpeech = false) {
@@ -268,6 +390,9 @@ class PacingTelemetry {
     this.pacingBand = "idle";
     this.clarity = "unknown";
     this._healthySince = null;
+    this._lastPacketText = "";
+    this._lastPacketAt = 0;
+    this._windowStartedAt = null;
     this._onSeverePause = onSeverePause || null;
     this._onSpeech = onSpeech || null;
     this._holdDecay = options.holdDecay || null;
@@ -342,9 +467,11 @@ export {
   PacingTelemetry,
   PAUSE_THRESHOLD_MS,
   WPM_WINDOW_MS,
+  MIN_WINDOW_SEC,
   HEALTHY_MIN,
   HEALTHY_MAX,
   RUSH_WPM,
   SLOW_WPM,
   isUnclearText,
+  wordCount,
 };
