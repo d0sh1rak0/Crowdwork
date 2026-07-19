@@ -9,6 +9,7 @@ import SessionCoordinator from "./coordination/SessionCoordinator.js";
 import WaveformVisualizer from "./components/WaveformVisualizer.js";
 import pacingTelemetry from "./services/PacingTelemetry.js";
 import sessionTimerService from "./services/SessionTimerService.js";
+import { shouldAutoAdvanceSlide } from "./services/SlideAdvanceService.js";
 import vocalMetricsService from "./services/VocalMetricsService.js";
 import NetworkClient from "./utilities/NetworkClient.js";
 import {
@@ -67,6 +68,8 @@ let heckleInFlight = false;
 let hesitationApplied = false;
 let liveTranscriptParts = [];
 let unsubPacing = null;
+let autoAdvanceLock = false;
+let lastAutoAdvanceAt = 0;
 
 function state() {
   return getState();
@@ -233,7 +236,7 @@ function startRun() {
 }
 
 function startVocalMetrics() {
-  // Fillers / WPM / monotone only — pause decay is owned by PacingTelemetry
+  // Fillers / monotone only — pause + pacing band owned by PacingTelemetry
   vocalMetricsService.start({
     onPauseStart: null,
     onPauseTick: null,
@@ -245,6 +248,7 @@ function startVocalMetrics() {
     },
     onRushed: ({ wpm }) => {
       if (phase !== "running" || paused) return;
+      flashPacingWarning("Pacing: RUSHING!", "rush");
       audience?.onRushed(wpm);
       setMetricState("Rushed", "danger");
     },
@@ -283,6 +287,16 @@ function flashFillerWarning(word, total) {
   flashFillerWarning._t = setTimeout(() => el.classList.remove("show"), 900);
 }
 
+function flashPacingWarning(message, tone = "rush") {
+  const el = document.getElementById("pacing-flash");
+  if (!el) return;
+  el.textContent = message;
+  el.dataset.tone = tone;
+  el.classList.add("show");
+  clearTimeout(flashPacingWarning._t);
+  flashPacingWarning._t = setTimeout(() => el.classList.remove("show"), 1600);
+}
+
 function setMetricState(label, tone) {
   const el = document.getElementById("metric-state");
   if (!el) return;
@@ -291,14 +305,19 @@ function setMetricState(label, tone) {
 }
 
 function updateMetricHud(m) {
+  const pacing = pacingTelemetry.getSnapshot();
+  const wpm = pacing.wpm || m.wpm || 0;
   const wpmEl = document.getElementById("metric-wpm");
-  if (wpmEl) wpmEl.textContent = `${m.wpm || 0} wpm`;
+  if (wpmEl) wpmEl.textContent = `${wpm} wpm`;
   const fillersEl = document.getElementById("metric-fillers");
   if (fillersEl) fillersEl.textContent = `Fillers ${m.fillerTotal || 0}`;
-  const pacing = pacingTelemetry.getSnapshot();
-  if (m.state === "RUSHED") setMetricState("Rushed", "danger");
+  if (pacing.pacingBand === "rush" || m.state === "RUSHED")
+    setMetricState("Rushed", "danger");
+  else if (pacing.pacingBand === "slow") setMetricState("Too slow", "warn");
   else if (m.state === "MONOTONE") setMetricState("Monotone", "warn");
   else if (pacing.pausing) setMetricState("Pause", "warn");
+  else if (pacing.pacingBand === "healthy") setMetricState("Steady", "steady");
+  else if (pacing.clarity === "clear") setMetricState("Clear", "steady");
   else setMetricState("Steady", "steady");
 }
 
@@ -316,8 +335,6 @@ function processTranscriptChunk(text) {
   const clean = String(text || "").trim();
   if (!clean) return;
 
-  // Belt-and-suspenders: coordinator already registered; keep clocks aligned
-  pacingTelemetry.registerSpeechActivity({ text: clean });
   sessionTimerService.resetSilenceCounter();
   hesitationApplied = false;
 
@@ -334,9 +351,36 @@ function processTranscriptChunk(text) {
     clean,
     state().resolvedLanguage
   );
-  if (words >= 4 && metrics?.state === "STEADY") {
-    audience?.onGoodStretch();
-  }
+  updateMetricHud(metrics || vocalMetricsService.getSnapshot());
+
+  // Intelligent auto-advance: ≥75% of slide budget + script tail match
+  maybeAutoAdvanceSlide();
+}
+
+function maybeAutoAdvanceSlide() {
+  if (phase !== "running" || paused || autoAdvanceLock) return;
+  const s = state();
+  const current = s.scriptSlides[index];
+  if (!current) return;
+  if (index >= s.scriptSlides.length - 1) return; // never auto-finish
+
+  const ready = shouldAutoAdvanceSlide({
+    slideElapsed,
+    targetSeconds: current.seconds,
+    transcript: transcripts[index] || "",
+    script: current.script || "",
+  });
+  if (!ready) return;
+  if (Date.now() - lastAutoAdvanceAt < 2500) return;
+
+  lastAutoAdvanceAt = Date.now();
+  autoAdvanceLock = true;
+  console.log(
+    `[CrowdWork] Auto-advancing slide ${current.n} (75% + script tail match)`
+  );
+  void goNext().finally(() => {
+    autoAdvanceLock = false;
+  });
 }
 
 /** Silence Sentinel — independent of MediaRecorder chunk delivery */
@@ -434,15 +478,24 @@ function renderScriptStack() {
       <span class="script-card-body">${escapeHtml(slide.script)}</span>
       <span class="script-card-meta font-utility">${slide.seconds}s</span>`;
     card.addEventListener("click", () => {
-      // Allow jumping only to current/previous for review feel
-      if (i <= index) {
-        index = i;
-        slideElapsed = slideTimes[i] || 0;
-        renderSlide();
-      }
+      // Manual override: jump to any slide thumbnail in the deck rail
+      void jumpToSlide(i);
     });
     stack.appendChild(card);
   });
+}
+
+async function jumpToSlide(targetIndex) {
+  if (phase !== "running") return;
+  const s = state();
+  if (targetIndex < 0 || targetIndex >= s.scriptSlides.length) return;
+  if (targetIndex === index) return;
+  await flushTranscript();
+  slideTimes[index] = slideElapsed;
+  index = targetIndex;
+  slideElapsed = slideTimes[index] || 0;
+  renderSlide();
+  showControls();
 }
 
 function escapeHtml(str) {
@@ -484,7 +537,10 @@ function updateTimers() {
   budgetFill.style.width = `${Math.min(100, ratio * 100)}%`;
   budgetFill.classList.toggle("warn", ratio >= 0.9 && ratio <= 1);
   budgetFill.classList.toggle("over", ratio > 1);
+  budgetFill.classList.toggle("auto-ready", ratio >= 0.75 && ratio < 0.9);
   budgetLabel.textContent = `Slide ${current.n} · ${formatTime(slideElapsed)} / ${formatTime(current.seconds)}`;
+  // Timing gate for intelligent auto-advance (script-tail checked on STT chunks)
+  if (ratio >= 0.75) maybeAutoAdvanceSlide();
 }
 
 function renderSlide() {
@@ -517,11 +573,46 @@ function startRecording() {
   sessionCoordinator.start(stream, {
     shouldRun: () => phase === "running" && !paused && !micDenied,
     getLanguage: () => state().resolvedLanguage || "en",
+    hasMicSignal: () => Boolean(waveform?.hasSignal?.()),
     onTranscript: (text) => processTranscriptChunk(text),
+    onClearSpeech: () => {
+      if (phase !== "running" || paused) return;
+      audience?.onClearSpeech();
+      setMetricState("Clear", "steady");
+    },
+    onUnclearSpeech: () => {
+      if (phase !== "running" || paused) return;
+      audience?.onUnclearSpeech();
+      setMetricState("Unclear", "warn");
+    },
     onSeverePause: (pauseMs) => decayAttentionMeter(pauseMs),
     onSpeechResume: () => onSpeechActivityResumed(),
     onError: (err) => console.warn("[STT]", err),
+    pacingHandlers: {
+      onSteadyPacing: ({ wpm }) => {
+        if (phase !== "running" || paused) return;
+        audience?.onSteadyPacing(wpm);
+        setMetricState("Steady", "steady");
+      },
+      onRushing: ({ wpm }) => {
+        if (phase !== "running" || paused) return;
+        flashPacingWarning("Pacing: RUSHING!", "rush");
+        audience?.onRushed(wpm);
+        setMetricState("Rushed", "danger");
+      },
+      onTooSlow: ({ wpm }) => {
+        if (phase !== "running" || paused) return;
+        flashPacingWarning("Pacing: TOO SLOW!", "slow");
+        audience?.onTooSlow(wpm);
+        setMetricState("Too slow", "warn");
+      },
+      onWpm: (wpm) => {
+        const wpmEl = document.getElementById("metric-wpm");
+        if (wpmEl) wpmEl.textContent = `${wpm || 0} wpm`;
+      },
+    },
   });
+
   sessionTimerService.resetSilenceCounter();
 }
 

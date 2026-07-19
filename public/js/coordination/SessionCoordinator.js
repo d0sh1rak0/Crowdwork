@@ -82,11 +82,17 @@ class SessionCoordinator {
     this._stopped = true;
     this._handlers = {
       onTranscript: null,
+      onClearSpeech: null,
+      onUnclearSpeech: null,
       onSeverePause: null,
       onSpeechResume: null,
       onError: null,
       getLanguage: () => "en",
       shouldRun: () => true,
+      /** Optional: () => boolean — mic visualizer sees energy */
+      hasMicSignal: () => false,
+      /** Forwarded into PacingTelemetry.startTelemetryLoop({ handlers }) */
+      pacingHandlers: null,
     };
   }
 
@@ -130,7 +136,8 @@ class SessionCoordinator {
       },
       (evt) => {
         if (evt.resumed) this._handlers.onSpeechResume?.(evt);
-      }
+      },
+      { handlers: this._handlers.pacingHandlers || {} }
     );
 
     pacingTelemetry.registerSpeechActivity({ text: "" });
@@ -342,15 +349,36 @@ class SessionCoordinator {
       { mimeType, filename: `recording.${ext}` }
     );
 
-    if (text && text.trim()) {
-      pacingTelemetry.registerSpeechActivity({ text });
-      this._handlers.onTranscript?.(text.trim());
+    const clean = text && text.trim() ? text.trim() : "";
+    const micHot =
+      typeof this._handlers.hasMicSignal === "function"
+        ? this._handlers.hasMicSignal()
+        : false;
+    // Substantial blob ≈ physical audio was present in the slice
+    const audioPresent = micHot || blob.size >= 3500;
+
+    if (clean) {
+      pacingTelemetry.registerClearSpeech(clean);
+      this._handlers.onClearSpeech?.({ text: clean, bytes: blob.size });
+      this._handlers.onTranscript?.(clean);
+    } else if (audioPresent) {
+      console.warn(
+        `[SessionCoordinator] UNCLEAR SPEECH — audio bytes=${blob.size} but empty STT`
+      );
+      pacingTelemetry.registerUnclearSpeech({
+        reason: "empty-stt",
+        audioBytes: blob.size,
+      });
+      this._handlers.onUnclearSpeech?.({
+        bytes: blob.size,
+        micHot,
+      });
     } else {
       console.warn(
-        `[SessionCoordinator] Whisper returned empty text for ${blob.size}B ${mimeType} payload`
+        `[SessionCoordinator] Whisper empty for quiet ${blob.size}B ${mimeType} slice`
       );
     }
-    return text || null;
+    return clean || null;
   }
 
   async _tickSlice() {

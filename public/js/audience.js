@@ -475,6 +475,65 @@ export function createAudienceEngine({
     renderAttention();
   }
 
+  /** Sustained 120–150 WPM across a 5s block */
+  function onSteadyPacing(wpm) {
+    attention = clamp(attention + 4);
+    if (houseEl) houseEl.dataset.delivery = "steady";
+    members.forEach((m) => {
+      m.el.classList.remove(
+        "is-look-away",
+        "is-arms-crossed",
+        "is-lean-back",
+        "is-bored"
+      );
+      m.el.classList.add("is-engaged");
+      setTimeout(() => m.el.classList.remove("is-engaged"), 1200);
+    });
+    pushReaction("recover", wpm ? `${wpm} wpm` : "steady pace");
+    roomAudio.setTension(0.15);
+    renderAttention();
+  }
+
+  /** Confident STT + mic signal */
+  function onClearSpeech() {
+    attention = clamp(attention + 3.5);
+    if (houseEl) houseEl.dataset.delivery = "steady";
+    members.forEach((m, i) => {
+      m.el.classList.remove("is-look-away", "is-arms-crossed", "is-confused");
+      if (i % 2 === 0) m.el.classList.add("is-welcoming");
+      setTimeout(() => m.el.classList.remove("is-welcoming"), 1100);
+    });
+    renderAttention();
+  }
+
+  /** Mic energy but empty / junk STT */
+  function onUnclearSpeech() {
+    attention = clamp(attention - 5);
+    if (houseEl) houseEl.dataset.delivery = "unclear";
+    members.forEach((m, i) => {
+      if (i % 3 === 0) {
+        m.el.classList.add("is-confused", "is-arms-crossed");
+        setTimeout(() => {
+          m.el.classList.remove("is-confused", "is-arms-crossed");
+        }, 1300);
+      }
+    });
+    pushReaction("confused", pick(["huh?", "say again?", "muddy", "lost it"]));
+    roomAudio.setTension(0.55);
+    renderAttention();
+  }
+
+  function onTooSlow(wpm) {
+    attention = clamp(attention - 4);
+    if (houseEl) houseEl.dataset.delivery = "slow";
+    members.forEach((m, i) => {
+      if (i % 4 === 0) m.el.classList.add("is-bored");
+      setTimeout(() => m.el.classList.remove("is-bored"), 1400);
+    });
+    pushReaction("murmur", wpm ? `${wpm} wpm` : "too slow");
+    renderAttention();
+  }
+
   function getSnapshot() {
     const avg =
       samples.length > 0
@@ -531,6 +590,10 @@ export function createAudienceEngine({
     onRushed,
     onMonotone,
     onGoodStretch,
+    onSteadyPacing,
+    onClearSpeech,
+    onUnclearSpeech,
+    onTooSlow,
     onHesitationWarning,
     applyCrowdState,
     getSnapshot,

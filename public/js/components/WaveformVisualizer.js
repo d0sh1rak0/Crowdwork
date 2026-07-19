@@ -12,6 +12,8 @@ class WaveformVisualizer {
     this.animationFrameId = null;
     this._running = false;
     this._resizeObs = null;
+    this.lastRms = 0;
+    this.signalActive = false;
   }
 
   init(stream) {
@@ -82,10 +84,13 @@ class WaveformVisualizer {
     this.ctx.lineCap = "round";
     this.ctx.beginPath();
 
+    let sumSq = 0;
     const sliceWidth = w / this.dataArray.length;
     let x = 0;
     for (let i = 0; i < this.dataArray.length; i++) {
       const v = this.dataArray[i] / 128.0;
+      const centered = v - 1;
+      sumSq += centered * centered;
       const y = (v * h) / 2;
       if (i === 0) this.ctx.moveTo(x, y);
       else this.ctx.lineTo(x, y);
@@ -93,6 +98,18 @@ class WaveformVisualizer {
     }
     this.ctx.lineTo(w, h / 2);
     this.ctx.stroke();
+
+    this.lastRms = Math.sqrt(sumSq / Math.max(1, this.dataArray.length));
+    this.signalActive = this.lastRms > 0.02;
+  }
+
+  /** Latest mic energy from the visualizer analyser (0–~1). */
+  getRms() {
+    return this.lastRms || 0;
+  }
+
+  hasSignal() {
+    return Boolean(this.signalActive);
   }
 
   async resume() {

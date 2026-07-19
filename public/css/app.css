@@ -594,6 +594,9 @@ a:hover {
 .budget-fill.over {
   background: var(--over);
 }
+.budget-fill.auto-ready {
+  box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.45);
+}
 .budget-label {
   margin: 0.35rem 0 0;
   text-align: center;
@@ -1333,6 +1336,7 @@ a:hover {
   opacity: 0.9;
 }
 .house-person.is-confused {
+  transform: rotate(4deg) translateY(2px);
   animation: person-giggle 0.8s ease-in-out 1;
 }
 .house-person.is-sigh {
@@ -1450,6 +1454,40 @@ a:hover {
   transform: translate(-50%, -50%) scale(1);
 }
 
+/* Vocal Attention Matrix — pacing overlay (Jet Black / Electric Yellow) */
+.pacing-flash {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translate(-50%, -12px) scale(0.96);
+  padding: 0.4rem 0.75rem;
+  border: 1px solid #FFD60A;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.92);
+  color: #FFD60A;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+  z-index: 5;
+  white-space: nowrap;
+}
+.pacing-flash.show {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+.pacing-flash[data-tone="rush"] {
+  border-color: #e5533c;
+  color: #ffb4a8;
+}
+.pacing-flash[data-tone="slow"] {
+  border-color: #FFD60A;
+  color: #FFD60A;
+}
+
 .live-hearing {
   margin-top: 0.65rem;
   padding-top: 0.55rem;
@@ -1522,6 +1560,26 @@ a:hover {
 }
 .house-person.is-arms-crossed .shoulder {
   filter: brightness(0.85);
+}
+.house-person.is-welcoming {
+  transform: translateY(-3px) scale(1.03);
+}
+.house-person.is-engaged {
+  filter: brightness(1.08);
+}
+.house[data-delivery="unclear"] .house-glow {
+  background: radial-gradient(
+    ellipse 70% 80% at 50% 100%,
+    rgba(255, 214, 10, 0.1),
+    transparent 70%
+  );
+}
+.house[data-delivery="slow"] .house-glow {
+  background: radial-gradient(
+    ellipse 70% 80% at 50% 100%,
+    rgba(150, 147, 139, 0.18),
+    transparent 70%
+  );
 }
 .house[data-delivery="rushed"] .house-glow {
   background: radial-gradient(
