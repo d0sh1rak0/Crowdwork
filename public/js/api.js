@@ -65,10 +65,30 @@ export async function fetchObjections(payload) {
   return res.json();
 }
 
-export async function transcribeAudio(blob, language) {
-  const form = new FormData();
-  form.append("audio", blob, "chunk.webm");
-  form.append("language", language);
+/**
+ * @param {Blob|FormData} blobOrForm
+ * @param {string} [language]
+ * @param {{ mimeType?: string, filename?: string }} [meta]
+ */
+export async function transcribeAudio(blobOrForm, language, meta = {}) {
+  let form;
+  if (blobOrForm instanceof FormData) {
+    form = blobOrForm;
+    if (!form.has("language") && language) form.append("language", language);
+  } else {
+    const mimeType = meta.mimeType || blobOrForm?.type || "audio/webm";
+    const filename = meta.filename || "recording.webm";
+    console.log(
+      `[API] POST /api/transcribe → mimeType=${mimeType} size=${blobOrForm?.size ?? 0}B file=${filename}`
+    );
+    form = new FormData();
+    // Prefer "file" (Whisper-style) and keep "audio" for backward compatibility
+    form.append("file", blobOrForm, filename);
+    form.append("audio", blobOrForm, filename);
+    form.append("language", language || "en");
+    form.append("mimeType", mimeType);
+  }
+
   const res = await NetworkClient.fetch("/api/transcribe", {
     method: "POST",
     body: form,

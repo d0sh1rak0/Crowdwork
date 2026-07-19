@@ -24,27 +24,95 @@ class AudioTranscriptionService {
   /**
    * @param {Blob} audioBlob
    * @param {string} [language]
+   * @param {{ mimeType?: string, filename?: string }} [meta]
    * @returns {Promise<string>} trimmed transcript ("" if silence / failure)
    */
-  async transcribeAudio(audioBlob, language = "en") {
-    if (!audioBlob || audioBlob.size < 200) return "";
+  async transcribeAudio(audioBlob, language = "en", meta = {}) {
+    return this.transcribeAudioPayload(audioBlob, language, meta);
+  }
+
+  /**
+   * Validated payload path — logs mime/size and refuses empty blobs.
+   * @param {Blob|FormData} blobOrForm
+   * @param {string} [language]
+   * @param {{ mimeType?: string, filename?: string }} [meta]
+   */
+  async transcribeAudioPayload(blobOrForm, language = "en", meta = {}) {
+    let blob = null;
+    let filename = meta.filename || "recording.webm";
+    let mimeType = meta.mimeType || "";
+
+    if (blobOrForm instanceof FormData) {
+      // Already packaged by caller — ship as-is through api helper path
+      this._inFlight += 1;
+      try {
+        const { text } = await apiTranscribe(blobOrForm, language);
+        return this._finalize(text, language);
+      } catch (err) {
+        console.error("[STT] Pipeline transmission failure:", err);
+        throw err;
+      } finally {
+        this._inFlight = Math.max(0, this._inFlight - 1);
+      }
+    }
+
+    blob = blobOrForm;
+    if (!blob || typeof blob.size !== "number") return "";
+    mimeType = mimeType || blob.type || "audio/webm";
+    if (!meta.filename) {
+      const ext = mimeType.includes("mp4") || mimeType.includes("aac")
+        ? "m4a"
+        : mimeType.includes("ogg")
+          ? "ogg"
+          : mimeType.includes("wav")
+            ? "wav"
+            : "webm";
+      filename = `recording.${ext}`;
+    }
+
+    console.log(
+      `[STT] Payload check → mimeType=${mimeType} size=${blob.size}B file=${filename}`
+    );
+
+    if (blob.size === 0) {
+      console.warn(
+        "Telemetry Alert: Caught an empty audio blob block. Data transmission skipped."
+      );
+      return "";
+    }
+    if (blob.size < 200) {
+      console.warn(
+        `Telemetry Alert: Audio blob too small (${blob.size}B). Data transmission skipped.`
+      );
+      return "";
+    }
 
     this._inFlight += 1;
     try {
-      const { text } = await apiTranscribe(audioBlob, language);
-      const clean = String(text || "").trim();
-      if (!clean) return "";
-
-      this.lastText = clean;
-      this.lastAt = Date.now();
-      this._emit(clean, language);
-      return clean;
+      const { text } = await apiTranscribe(blob, language, {
+        mimeType,
+        filename,
+      });
+      return this._finalize(text, language);
     } catch (err) {
       console.error("[STT] Pipeline transmission failure:", err);
       throw err;
     } finally {
       this._inFlight = Math.max(0, this._inFlight - 1);
     }
+  }
+
+  _finalize(text, language) {
+    const clean = String(text || "").trim();
+    if (!clean) return "";
+    this.lastText = clean;
+    this.lastAt = Date.now();
+    this._emit(clean, language);
+    console.log(
+      `[STT] Transcript received (${clean.split(/\s+/).length} words):`,
+      clean.slice(0, 120)
+    );
+    return clean;
   }
 
   get inFlight() {

@@ -309,37 +309,60 @@ ${deck}`,
     }
   });
 
-  router.post("/transcribe", upload.single("audio"), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Missing audio file." });
+  router.post(
+    "/transcribe",
+    upload.fields([
+      { name: "audio", maxCount: 1 },
+      { name: "file", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const uploaded =
+          req.files?.audio?.[0] || req.files?.file?.[0] || req.file;
+        if (!uploaded) {
+          return res.status(400).json({ error: "Missing audio file." });
+        }
+        if (!uploaded.size) {
+          return res.status(400).json({ error: "Empty audio payload." });
+        }
+
+        const key = process.env.GROQ_WHISPER_API_KEY;
+        if (!key) throw new Error("GROQ_WHISPER_API_KEY is not set.");
+
+        const groq = new Groq({ apiKey: key });
+        const lang = req.body.language === "ru" ? "ru" : "en";
+        const mimeType =
+          req.body.mimeType || uploaded.mimetype || "audio/webm";
+        const filename = uploaded.originalname || "recording.webm";
+
+        console.log(
+          `[transcribe] received mimeType=${mimeType} size=${uploaded.size}B file=${filename} lang=${lang}`
+        );
+
+        const file = new File([uploaded.buffer], filename, {
+          type: mimeType,
+        });
+
+        const result = await groq.audio.transcriptions.create({
+          file,
+          model: process.env.GROQ_WHISPER_MODEL || "whisper-large-v3",
+          language: lang,
+          response_format: "json",
+        });
+
+        const text = result.text || "";
+        console.log(
+          `[transcribe] whisper words=${text.trim() ? text.trim().split(/\s+/).length : 0}`
+        );
+        res.json({ text });
+      } catch (err) {
+        console.error("[transcribe]", err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : "Transcription failed.",
+        });
       }
-      const key = process.env.GROQ_WHISPER_API_KEY;
-      if (!key) throw new Error("GROQ_WHISPER_API_KEY is not set.");
-
-      const groq = new Groq({ apiKey: key });
-      const lang = req.body.language === "ru" ? "ru" : "en";
-      const file = new File(
-        [req.file.buffer],
-        req.file.originalname || "audio.webm",
-        { type: req.file.mimetype || "audio/webm" }
-      );
-
-      const result = await groq.audio.transcriptions.create({
-        file,
-        model: process.env.GROQ_WHISPER_MODEL || "whisper-large-v3",
-        language: lang,
-        response_format: "json",
-      });
-
-      res.json({ text: result.text || "" });
-    } catch (err) {
-      console.error("[transcribe]", err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : "Transcription failed.",
-      });
     }
-  });
+  );
 
   router.post("/speak", async (req, res) => {
     try {
