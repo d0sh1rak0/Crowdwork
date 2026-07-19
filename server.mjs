@@ -13,10 +13,29 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
+// ngrok / reverse proxies terminate TLS upstream — trust X-Forwarded-* 
+app.set("trust proxy", true);
+
 app.use(cors());
 app.use(express.json({ limit: "25mb" }));
+
+// Help browsers treat tunnel traffic as a normal first-party app
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  // Allow mic/camera for this origin when framed by the same host
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(self)");
+  next();
+});
+
 app.use("/api", createApiRouter());
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"), {
+  // Ensure module scripts are served with correct MIME behind proxies
+  setHeaders(res, filePath) {
+    if (filePath.endsWith(".js") || filePath.endsWith(".mjs")) {
+      res.setHeader("Content-Type", "text/javascript; charset=utf-8");
+    }
+  },
+}));
 
 app.get("/script", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "script.html"));

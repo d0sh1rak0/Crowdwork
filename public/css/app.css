@@ -1475,6 +1475,38 @@ a:hover {
   color: #e8e4dc;
 }
 
+/* ngrok / insecure-origin hardware gate */
+.secure-context-banner {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 10000;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 0.75rem 1.1rem;
+  background: #2a1a0a;
+  border-bottom: 1px solid #FFD60A;
+  color: #f2ede3;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.secure-context-banner.show,
+.secure-context-banner:not([hidden]) {
+  display: flex;
+}
+.secure-context-banner[hidden] {
+  display: none !important;
+}
+.secure-context-banner strong {
+  color: #FFD60A;
+  font-weight: 600;
+}
+.secure-context-banner a {
+  color: #FFD60A;
+  text-decoration: underline;
+}
+
 .house-person.is-lean-back {
   transform: translateY(6px) scale(0.96);
 }

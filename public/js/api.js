@@ -1,3 +1,4 @@
+import NetworkClient from "./utilities/NetworkClient.js";
 import { toast } from "./utils.js";
 
 async function parseError(res) {
@@ -13,7 +14,10 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await NetworkClient.fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
   } catch (err) {
     if (err?.name === "AbortError") {
       throw new Error("Script generation timed out. Try fewer slides or retry.");
@@ -32,7 +36,7 @@ export async function generateScript(payload) {
     "/api/generate-script",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: NetworkClient.getJsonHeaders(),
       body: JSON.stringify(payload),
     },
     timeoutMs
@@ -42,9 +46,9 @@ export async function generateScript(payload) {
 }
 
 export async function fetchFeedback(payload) {
-  const res = await fetch("/api/feedback", {
+  const res = await NetworkClient.fetch("/api/feedback", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: NetworkClient.getJsonHeaders(),
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -52,9 +56,9 @@ export async function fetchFeedback(payload) {
 }
 
 export async function fetchObjections(payload) {
-  const res = await fetch("/api/objections", {
+  const res = await NetworkClient.fetch("/api/objections", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: NetworkClient.getJsonHeaders(),
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -65,15 +69,18 @@ export async function transcribeAudio(blob, language) {
   const form = new FormData();
   form.append("audio", blob, "chunk.webm");
   form.append("language", language);
-  const res = await fetch("/api/transcribe", { method: "POST", body: form });
+  const res = await NetworkClient.fetch("/api/transcribe", {
+    method: "POST",
+    body: form,
+  });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
 
 export async function speakText(text, language) {
-  const res = await fetch("/api/speak", {
+  const res = await NetworkClient.fetch("/api/speak", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: NetworkClient.getJsonHeaders(),
     body: JSON.stringify({ text, language }),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -82,9 +89,9 @@ export async function speakText(text, language) {
 
 /** Silence Sentinel → Gemini crowd override (+ optional heckle TTS). */
 export async function requestHeckle(payload) {
-  const res = await fetch("/api/heckle", {
+  const res = await NetworkClient.fetch("/api/heckle", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: NetworkClient.getJsonHeaders(),
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await parseError(res));

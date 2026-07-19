@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
+    "tunnel": "bash scripts/start-ngrok.sh 3000",
     "build": "node -e \"console.log('Static HTML/CSS/JS app — no compile step')\""
   },
   "dependencies": {

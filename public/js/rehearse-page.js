@@ -10,6 +10,7 @@ import WaveformVisualizer from "./components/WaveformVisualizer.js";
 import pacingTelemetry from "./services/PacingTelemetry.js";
 import sessionTimerService from "./services/SessionTimerService.js";
 import vocalMetricsService from "./services/VocalMetricsService.js";
+import NetworkClient from "./utilities/NetworkClient.js";
 import {
   getPurposeString,
   getState,
@@ -105,14 +106,21 @@ async function boot() {
 
   initAudience();
 
+  // Mic/camera require a secure origin (https:// ngrok or localhost)
+  const secureOk = NetworkClient.checkHardwareSecurity();
+  if (!secureOk) {
+    micDenied = true;
+    camDenied = true;
+  }
+
   try {
     await document.documentElement.requestFullscreen();
   } catch {
     /* optional */
   }
 
-  // Request mic + webcam
-  if (navigator.mediaDevices?.getUserMedia) {
+  // Request mic + webcam (browsers strip getUserMedia on insecure HTTP tunnels)
+  if (secureOk && navigator.mediaDevices?.getUserMedia) {
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -139,7 +147,7 @@ async function boot() {
         camDenied = true;
       }
     }
-  } else {
+  } else if (secureOk) {
     micDenied = true;
     camDenied = true;
   }
@@ -165,7 +173,11 @@ async function boot() {
     transcripts[i] = "";
   }
 
-  if (micDenied || camDenied) {
+  if (!secureOk) {
+    micNote.classList.remove("hidden");
+    micNote.textContent =
+      "Hardware blocked on insecure HTTP — open the https:// ngrok link.";
+  } else if (micDenied || camDenied) {
     micNote.classList.remove("hidden");
     const parts = [];
     if (micDenied) parts.push("mic");
