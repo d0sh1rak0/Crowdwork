@@ -12,7 +12,6 @@ import {
   setDeck,
   setGenerating,
   setScriptSlides,
-  slidesForApi,
   updateSetup,
 } from "./store.js";
 import { consumeUploadBanner } from "./utilities/navigationBanner.js";
