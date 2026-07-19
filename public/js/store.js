@@ -139,6 +139,8 @@ export function setDeck({ title, slides }) {
     feedback: null,
     objections: null,
   });
+  // Critical: deck must be durable before any navigate-to-generate
+  flushPersist();
 }
 
 export function updateSetup(partial) {

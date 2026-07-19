@@ -106,12 +106,26 @@ export async function generateScriptWithRecovery(payload, options = {}) {
   const maxAttempts = options.maxAttempts ?? 24;
   let attempt = 0;
 
+  // Notify UI that a real API request is starting (not a fake wait)
+  options.onRequestStart?.({
+    attempt: 0,
+    slideCount: payload?.slides?.length || 0,
+  });
+
   while (true) {
     if (signal?.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }
     try {
-      return await generateFn(payload, { signal });
+      if (attempt > 0) {
+        options.onRequestStart?.({
+          attempt,
+          slideCount: payload?.slides?.length || 0,
+        });
+      }
+      const data = await generateFn(payload, { signal });
+      options.onRequestSuccess?.(data);
+      return data;
     } catch (err) {
       if (signal?.aborted || err?.name === "AbortError") {
         throw new DOMException("Aborted", "AbortError");

@@ -62,6 +62,7 @@ Batch slides only. No extra keys.`,
   ];
   for (const slide of batchSlides) parts.push(...slideParts(slide));
   const parsed = await generateJson(model, parts, {
+    systemInstruction: SCRIPT_SYSTEM_PROMPT,
     temperature: 0.55,
     // Tight token budget — short spoken lines, faster streams
     maxOutputTokens: Math.min(4000, 600 + batchSlides.length * 220),
@@ -111,6 +112,7 @@ Return JSON with a slides array containing exactly one object for slide ${target
     ...slideParts(slide),
   ];
   const parsed = await generateJson(model, parts, {
+    systemInstruction: SCRIPT_SYSTEM_PROMPT,
     temperature: 0.7,
     maxOutputTokens: 2000,
   });
@@ -183,6 +185,15 @@ export function createApiRouter() {
     } catch (err) {
       console.error("[generate-script]", err);
       const rate = inspectRateLimitError(err);
+      if (rate.isHardFault) {
+        // Quota / billing / API key — surface clearly, do not spin the loading bar
+        return res.status(402).json({
+          error:
+            "Script generation is blocked by the AI provider (API key, quota, or billing). Check GEMINI_API_KEY and your plan, then try again.",
+          code: "PROVIDER_QUOTA",
+          detail: rate.message.slice(0, 280),
+        });
+      }
       if (rate.isRateLimit) {
         return sendRateLimitResponse(res, err);
       }
@@ -249,7 +260,11 @@ Return JSON:
 }`,
           },
         ],
-        { temperature: 0.4, maxOutputTokens: 2000 }
+        {
+          systemInstruction: FEEDBACK_SYSTEM_PROMPT,
+          temperature: 0.4,
+          maxOutputTokens: 2000,
+        }
       );
 
       const strengths = (parsed.strengths || []).slice(0, 3);
@@ -606,7 +621,11 @@ Return ONLY this JSON shape:
 Use CROWD_STATE HECKLE if silence>=5 else RESTLESS. heckleLine in ${langLabel}.`,
           },
         ],
-        { temperature: 0.5, maxOutputTokens: 300 }
+        {
+          systemInstruction: `You simulate a live pitch room. Output a single JSON object. No markdown fences.`,
+          temperature: 0.5,
+          maxOutputTokens: 300,
+        }
       );
 
       const state = String(parsed.CROWD_STATE || parsed.crowd_state || "RESTLESS")

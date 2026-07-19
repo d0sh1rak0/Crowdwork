@@ -9,9 +9,11 @@ import {
   getResolvedLanguage,
   getState,
   navigateSafely,
+  flushPersist,
   setDeck,
   setGenerating,
   setScriptSlides,
+  slidesForApi,
   updateSetup,
 } from "./store.js";
 import { consumeUploadBanner } from "./utilities/navigationBanner.js";
@@ -315,8 +317,17 @@ async function writeScript() {
     return;
   }
 
-  // Lean handoff — rebuild slides from the live store on the script page
-  // (avoids multi-MB base64 stringify into sessionStorage)
+  // Flush deck to sessionStorage BEFORE navigate — deferred persist was racing
+  // the page unload and leaving the script page with zero slides.
+  flushPersist();
+
+  // Lean text slides (no full-res JPEGs) so generation still works if store reload fails
+  const leanSlides = slidesForApi().map((s) => ({
+    n: s.n,
+    text: s.text || "",
+    ...(s.image ? { image: s.image } : {}),
+  }));
+
   const payload = {
     useStoreSlides: true,
     deckTitle: state.deckTitle,
@@ -326,9 +337,14 @@ async function writeScript() {
     tone: setup.tone,
     targetMinutes: setup.targetMinutes,
     language: getResolvedLanguage(),
+    slides: leanSlides,
   };
 
   try {
+    if (!leanSlides.length) {
+      showError("Upload a PDF or paste a script first.");
+      return;
+    }
     sessionStorage.setItem(
       "crowdwork-pending-generate",
       JSON.stringify(payload)
@@ -336,6 +352,7 @@ async function writeScript() {
     setGenerating(true);
     writeBtn.disabled = true;
     writeBtn.textContent = "Writing your script…";
+    flushPersist();
     navigateSafely("/script");
   } catch (err) {
     setGenerating(false);

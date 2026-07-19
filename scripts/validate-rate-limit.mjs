@@ -19,7 +19,11 @@ import {
   assert.equal(a.isRateLimit, true);
   assert.ok(a.retryAfterSec >= 10 && a.retryAfterSec <= 90);
 
-  const b = inspectRateLimitError(new Error("RESOURCE_EXHAUSTED: quota exceeded"));
+  const b = inspectRateLimitError(
+    Object.assign(new Error("429 Too Many Requests — high demand"), {
+      status: 429,
+    })
+  );
   assert.equal(b.isRateLimit, true);
 
   const c = inspectRateLimitError(new Error("slide parse failed"));
@@ -27,6 +31,15 @@ import {
 
   const d = inspectRateLimitError(new Error("GEMINI_API_KEY is not set."));
   assert.equal(d.isRateLimit, false);
+  assert.equal(d.isHardFault, true);
+
+  const quota = inspectRateLimitError({
+    status: 429,
+    message:
+      "[429 Too Many Requests] You exceeded your current quota, please check your plan and billing details",
+  });
+  assert.equal(quota.isRateLimit, false);
+  assert.equal(quota.isHardFault, true);
 }
 
 // Client typed error
@@ -45,6 +58,12 @@ import {
   });
   assert.equal(isRateLimitError(serverErr), false);
   assert.equal(isHardFaultError(serverErr), true);
+  const quotaErr = Object.assign(
+    new Error("You exceeded your current quota, check billing"),
+    { status: 429 }
+  );
+  assert.equal(isHardFaultError(quotaErr), true);
+  assert.equal(isRateLimitError(quotaErr), false);
 }
 
 // Backoff window lands in predictive 10–45s band

@@ -2,15 +2,17 @@
  * Detect upstream rate-limit / capacity errors from Gemini, Groq, etc.
  */
 
-const RATE_LIMIT_RE =
-  /429|rate.?limit|too many requests|RESOURCE_EXHAUSTED|quota.?exceeded|exceeded.+quota|overloaded|capacity|throttl|try again later|resource has been exhausted/i;
+/** Transient overload — safe to auto-retry with backoff */
+const TRANSIENT_LIMIT_RE =
+  /429|rate.?limit|too many requests|overloaded|throttl|try again later|temporarily unavailable|high demand|resource.?exhausted/i;
 
+/** Billing / plan / key faults — retrying forever will never unlock generation */
 const HARD_FAULT_RE =
-  /api.?key|invalid.?key|unauthorized|permission.?denied|authentication|forbidden|not configured|is not set/i;
+  /api.?key|invalid.?key|unauthorized|permission.?denied|authentication|forbidden|not configured|is not set|billing|plan and billing|exceeded your current quota|quota.*billing|consumer.?suspended/i;
 
 /**
  * @param {unknown} err
- * @returns {{ isRateLimit: boolean, retryAfterSec: number, message: string }}
+ * @returns {{ isRateLimit: boolean, isHardFault: boolean, retryAfterSec: number, message: string }}
  */
 export function inspectRateLimitError(err) {
   const status =
@@ -26,7 +28,7 @@ export function inspectRateLimitError(err) {
   const parsedHeader = Number(headerRetry);
   const fromMessage = message.match(/retry.+?(\d+)\s*s/i);
   const retryAfterSec = Math.min(
-    90,
+    45,
     Math.max(
       10,
       Number.isFinite(parsedHeader) && parsedHeader > 0
@@ -37,22 +39,24 @@ export function inspectRateLimitError(err) {
     )
   );
 
-  // Auth / missing-key faults are hard errors — never treat as soft 429 recovery
-  if (
+  const isHardFault =
     status === 401 ||
     status === 403 ||
-    (HARD_FAULT_RE.test(message) && status !== 429)
-  ) {
-    return { isRateLimit: false, retryAfterSec, message };
+    HARD_FAULT_RE.test(message) ||
+    HARD_FAULT_RE.test(String(err?.code || ""));
+
+  // Quota / billing / key errors must NOT enter the predictive retry loop
+  if (isHardFault) {
+    return { isRateLimit: false, isHardFault: true, retryAfterSec, message };
   }
 
   const isRateLimit =
     status === 429 ||
     status === 503 ||
-    RATE_LIMIT_RE.test(message) ||
-    RATE_LIMIT_RE.test(String(err?.code || ""));
+    TRANSIENT_LIMIT_RE.test(message) ||
+    TRANSIENT_LIMIT_RE.test(String(err?.code || ""));
 
-  return { isRateLimit, retryAfterSec, message };
+  return { isRateLimit, isHardFault: false, retryAfterSec, message };
 }
 
 /**

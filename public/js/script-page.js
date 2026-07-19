@@ -157,7 +157,8 @@ function showGenerationErrorPanel(message, retryFn = null) {
 }
 
 /**
- * Generate with silent 429 recovery + predictive dashboard.
+ * Generate via the real Gemini API key path.
+ * Loading dashboard tracks the in-flight request; 429s use backoff recovery.
  * Non-rate-limit failures still surface via the caller.
  */
 async function runGenerateWithRecovery(payload) {
@@ -165,25 +166,36 @@ async function runGenerateWithRecovery(payload) {
   generationAbort = new AbortController();
   const { signal } = generationAbort;
 
+  const slides = Array.isArray(payload?.slides) ? payload.slides : [];
+  if (!slides.length) {
+    throw new Error(
+      "No slides available to generate. Go back and upload your deck again."
+    );
+  }
+
   setGenerating(true);
-  showLoading();
+  // Hide skeleton; the API-driven dashboard is the active loading surface
+  loading.classList.add("hidden");
+  empty.classList.add("hidden");
+  studio.classList.add("hidden");
+  headerMeta.classList.add("hidden");
 
   try {
     const data = await generateScriptWithRecovery(payload, {
       signal,
-      onEnterRecovery: ({ attempt, waitMs }) => {
-        // Rate limits are not session failures — keep the generating shell
+      onRequestStart: ({ slideCount }) => {
         setGenerating(true);
-        showLoading();
-        rateLimitDash?.show();
-        rateLimitDash?.setProgress(0, {
-          attempt,
-          waitMs,
-          remainingMs: waitMs,
-        });
+        rateLimitDash?.showGenerating({ slideCount: slideCount || slides.length });
+      },
+      onEnterRecovery: ({ attempt, waitMs }) => {
+        // Rate limits are not session failures — keep generating, wait, retry API
+        setGenerating(true);
+        rateLimitDash?.showRecovery({ attempt, waitMs });
       },
       onWaitProgress: ({ attempt, waitMs, progress, remainingMs }) => {
-        if (!rateLimitDash?.visible) rateLimitDash?.show();
+        if (!rateLimitDash?.visible) {
+          rateLimitDash?.showRecovery({ attempt, waitMs });
+        }
         rateLimitDash?.setProgress(progress, {
           attempt,
           waitMs,
@@ -197,9 +209,17 @@ async function runGenerateWithRecovery(payload) {
           waitMs: 0,
         });
       },
+      onRequestSuccess: () => {
+        rateLimitDash?.completeAndHide();
+        loading.classList.add("hidden");
+      },
     });
-    // Cut loading / rate-limit overlays the instant the payload lands
-    rateLimitDash?.hide();
+
+    if (!data?.slides?.length) {
+      throw new Error("The API returned an empty script. Please try again.");
+    }
+
+    rateLimitDash?.completeAndHide();
     loading.classList.add("hidden");
     return data;
   } catch (err) {
@@ -208,11 +228,7 @@ async function runGenerateWithRecovery(payload) {
     }
     throw err;
   } finally {
-    if (generationAbort && generationAbort.signal.aborted) {
-      generationAbort = null;
-    } else {
-      generationAbort = null;
-    }
+    generationAbort = null;
   }
 }
 
@@ -276,22 +292,33 @@ function renderRailLazy() {
   rail.replaceChildren(frag);
 }
 
+/**
+ * Rebuild a generate-script payload after navigation.
+ * Prefer live store slides; fall back to lean text slides embedded in pending meta
+ * (survives deferred-persist races that drop the deck on reload).
+ */
 function resolveGeneratePayload(raw) {
   const meta = JSON.parse(raw);
-  // Lean pending flag: rebuild slides from the live store (avoids multi-MB parse)
-  if (meta.useStoreSlides || !Array.isArray(meta.slides)) {
-    return {
-      deckTitle: meta.deckTitle || getState().deckTitle,
-      purpose: meta.purpose || getPurposeString(),
-      audience: meta.audience,
-      notes: meta.notes,
-      tone: meta.tone || getState().setup.tone,
-      targetMinutes: meta.targetMinutes || getState().setup.targetMinutes,
-      language: meta.language || getResolvedLanguage(),
-      slides: slidesForApi(),
-    };
-  }
-  return meta;
+  const fromStore = slidesForApi();
+  const fromPending = Array.isArray(meta.slides)
+    ? meta.slides.map((s) => ({
+        n: Number(s.n),
+        text: String(s.text || "").slice(0, 1200),
+        ...(s.image ? { image: s.image } : {}),
+      }))
+    : [];
+
+  const slides = fromStore.length ? fromStore : fromPending;
+  return {
+    deckTitle: meta.deckTitle || getState().deckTitle,
+    purpose: meta.purpose || getPurposeString(),
+    audience: meta.audience,
+    notes: meta.notes,
+    tone: meta.tone || getState().setup.tone,
+    targetMinutes: meta.targetMinutes || getState().setup.targetMinutes,
+    language: meta.language || getResolvedLanguage(),
+    slides,
+  };
 }
 
 async function runPendingGenerate() {
@@ -305,6 +332,12 @@ async function runPendingGenerate() {
   console.time("[Script Pipeline Performance]");
   try {
     const payload = resolveGeneratePayload(raw);
+    if (!payload.slides?.length) {
+      throw new Error(
+        "Deck slides were lost before generation. Please upload your PDF again."
+      );
+    }
+
     const data = await runGenerateWithRecovery(payload);
     // Only clear pending after a successful write
     sessionStorage.removeItem(PENDING_GENERATE_KEY);
@@ -312,10 +345,15 @@ async function runPendingGenerate() {
     // Memory-first apply — do NOT block paint on sessionStorage stringify
     const mapped = mapScripts(data.slides);
     setScriptSlides(mapped, { persist: false });
+    setGenerating(false);
+    rateLimitDash?.completeAndHide();
     paintScriptImmediate();
+    showStudio();
 
     // Let the browser paint the script before rail decode / idle persist
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await new Promise((r) =>
+      requestAnimationFrame(() => requestAnimationFrame(r))
+    );
     renderRailLazy();
     flushPersist();
 
@@ -830,9 +868,16 @@ document.getElementById("btn-speak").addEventListener("click", async () => {
   }
 
   if (sessionStorage.getItem(PENDING_GENERATE_KEY)) {
-    showLoading();
-    await runPendingGenerate();
-    // Script already painted inside runPendingGenerate — skip full re-render stall
+    // Dashboard + real API call — do not leave the skeleton loading forever
+    loading.classList.add("hidden");
+    const ok = await runPendingGenerate();
+    if (ok && hasScript()) {
+      showStudio();
+      paintScriptImmediate();
+      renderRailLazy();
+      return;
+    }
+    // Failure path already routed; ensure we don't stick on a blank loader
     if (!hasScript()) render();
     return;
   }

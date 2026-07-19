@@ -1,9 +1,19 @@
 /**
- * RateLimitDashboard — Jet Black / Electric Yellow predictive loading UI
- * shown while the generation pipeline recovers from upstream 429s.
+ * Generation / rate-limit loading dashboard — Jet Black / Electric Yellow.
+ * Used while the real Gemini generate-script request is in flight, and again
+ * if upstream returns 429 (predictive backoff window).
  */
 
-const PIPELINE_STATUSES = [
+const GENERATE_STATUSES = [
+  "Calling Gemini with your deck…",
+  "Drafting spoken lines per slide…",
+  "Allocating time budgets…",
+  "Tightening delivery tips…",
+  "Compacting JSON response…",
+  "Syncing slide order…",
+];
+
+const RECOVERY_STATUSES = [
   "Queueing server instance…",
   "Optimizing token headers…",
   "Allocating sandbox memory channels…",
@@ -11,11 +21,8 @@ const PIPELINE_STATUSES = [
   "Warming inference workers…",
   "Rebalancing request capacity…",
   "Syncing model context windows…",
-  "Compacting slide payload frames…",
   "Verifying upstream handshake…",
   "Recycling rate-limit tokens…",
-  "Priming generation sandbox…",
-  "Calibrating output token budget…",
 ];
 
 export default class RateLimitDashboard {
@@ -25,8 +32,11 @@ export default class RateLimitDashboard {
   constructor(root) {
     this.root = root;
     this._reelTimer = null;
+    this._progressTimer = null;
     this._statusIdx = 0;
     this._onBack = null;
+    this._mode = "generate"; // generate | recovery
+    this._statuses = GENERATE_STATUSES;
 
     this.headline = root.querySelector("[data-rl-headline]");
     this.reel = root.querySelector("[data-rl-reel]");
@@ -46,18 +56,91 @@ export default class RateLimitDashboard {
     this._onBack = fn;
   }
 
-  show() {
+  /**
+   * Show while the real generate-script API call is running.
+   * Progress eases toward ~90% over an estimated duration, then snaps on complete().
+   * @param {{ slideCount?: number, estimatedMs?: number }} [opts]
+   */
+  showGenerating(opts = {}) {
+    this._mode = "generate";
+    this._statuses = GENERATE_STATUSES;
+    this._showShell("Writing your script…");
+    const slides = Math.max(1, Number(opts.slideCount) || 8);
+    const estimatedMs =
+      Number(opts.estimatedMs) ||
+      Math.min(90000, Math.max(12000, 8000 + slides * 2500));
+    this._startPredictiveProgress(estimatedMs, 0.9);
+    if (this.meta) {
+      this.meta.textContent = `Generating ${slides} slide${slides === 1 ? "" : "s"} via API`;
+    }
+  }
+
+  /**
+   * Show during 429 / capacity backoff (bar fills across the wait window).
+   * @param {{ attempt?: number, waitMs?: number }} [opts]
+   */
+  showRecovery(opts = {}) {
+    this._mode = "recovery";
+    this._statuses = RECOVERY_STATUSES;
+    this._stopProgress();
+    this._showShell("This is taking a little longer than usual…");
+    const waitMs = Math.max(1000, Number(opts.waitMs) || 12000);
+    this.setProgress(0, {
+      attempt: opts.attempt || 1,
+      waitMs,
+      remainingMs: waitMs,
+    });
+  }
+
+  _showShell(headline) {
     this.root.hidden = false;
     this.root.classList.add("is-visible");
     this.root.setAttribute("aria-hidden", "false");
-    if (this.headline) {
-      this.headline.textContent = "This is taking a little longer than usual…";
-    }
+    if (this.headline) this.headline.textContent = headline;
     this.setProgress(0);
     this._startReel();
   }
 
+  /**
+   * Ease progress 0 → maxPct over durationMs (does not complete on its own).
+   */
+  _startPredictiveProgress(durationMs, maxPct = 0.9) {
+    this._stopProgress();
+    const duration = Math.max(2000, durationMs);
+    const started = performance.now();
+    const tick = () => {
+      const t = Math.min(1, (performance.now() - started) / duration);
+      // Ease-out so early movement feels responsive
+      const eased = 1 - (1 - t) * (1 - t);
+      this.setProgress(eased * maxPct, {
+        attempt: 0,
+        remainingMs: Math.max(0, duration - (performance.now() - started)),
+        waitMs: duration,
+      });
+      if (t < 1 && this.visible) {
+        this._progressTimer = requestAnimationFrame(tick);
+      }
+    };
+    this._progressTimer = requestAnimationFrame(tick);
+  }
+
+  _stopProgress() {
+    if (this._progressTimer) {
+      cancelAnimationFrame(this._progressTimer);
+      this._progressTimer = null;
+    }
+  }
+
+  /** Snap bar to 100% then hide — call when API payload is ready */
+  completeAndHide() {
+    this._stopProgress();
+    this.setProgress(1, { attempt: 0, remainingMs: 0, waitMs: 0 });
+    if (this.meta) this.meta.textContent = "Script ready — opening studio…";
+    this.hide();
+  }
+
   hide() {
+    this._stopProgress();
     this._stopReel();
     this.root.hidden = true;
     this.root.classList.remove("is-visible");
@@ -77,9 +160,12 @@ export default class RateLimitDashboard {
     const pct = Math.max(0, Math.min(100, progress * 100));
     if (this.bar) {
       this.bar.style.width = `${pct}%`;
-      this.bar.parentElement?.setAttribute("aria-valuenow", String(Math.round(pct)));
+      this.bar.parentElement?.setAttribute(
+        "aria-valuenow",
+        String(Math.round(pct))
+      );
     }
-    if (this.meta) {
+    if (this.meta && this._mode === "recovery") {
       const attempt = meta.attempt || 0;
       const secs = Math.ceil((meta.remainingMs || 0) / 1000);
       if (attempt > 0) {
@@ -90,13 +176,17 @@ export default class RateLimitDashboard {
       } else {
         this.meta.textContent = "Holding your deck in the queue";
       }
+    } else if (this.meta && this._mode === "generate" && meta.remainingMs != null) {
+      const secs = Math.ceil((meta.remainingMs || 0) / 1000);
+      if (secs > 0 && progress < 0.95) {
+        this.meta.textContent = `API generating… ~${secs}s remaining`;
+      }
     }
   }
 
   setReelText(text) {
     if (!this.reel) return;
     this.reel.classList.remove("is-tick");
-    // Force reflow for CSS tick animation
     void this.reel.offsetWidth;
     this.reel.textContent = text;
     this.reel.classList.add("is-tick");
@@ -104,11 +194,11 @@ export default class RateLimitDashboard {
 
   _startReel() {
     this._stopReel();
-    this._statusIdx = Math.floor(Math.random() * PIPELINE_STATUSES.length);
-    this.setReelText(PIPELINE_STATUSES[this._statusIdx]);
+    this._statusIdx = Math.floor(Math.random() * this._statuses.length);
+    this.setReelText(this._statuses[this._statusIdx]);
     this._reelTimer = setInterval(() => {
-      this._statusIdx = (this._statusIdx + 1) % PIPELINE_STATUSES.length;
-      this.setReelText(PIPELINE_STATUSES[this._statusIdx]);
+      this._statusIdx = (this._statusIdx + 1) % this._statuses.length;
+      this.setReelText(this._statuses[this._statusIdx]);
     }, 900);
   }
 
@@ -120,9 +210,10 @@ export default class RateLimitDashboard {
   }
 
   destroy() {
+    this._stopProgress();
     this._stopReel();
     this._onBack = null;
   }
 }
 
-export { PIPELINE_STATUSES };
+export { GENERATE_STATUSES, RECOVERY_STATUSES };
