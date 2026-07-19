@@ -1,4 +1,4 @@
-import { generateScript, speakText, toastRetry } from "./api.js";
+import { fetchPaceAdvice, generateScript, speakText, toastRetry } from "./api.js";
 import {
   getPurposeString,
   getResolvedLanguage,
@@ -16,6 +16,16 @@ import {
   updateSlideScript,
   updateSetup,
 } from "./store.js";
+import {
+  DEFAULT_PACE_TARGET_WPM,
+  PACE_TARGET_MAX,
+  PACE_TARGET_MIN,
+  clampPaceTarget,
+  derivePaceBands,
+  localPaceRecommendation,
+  localPaceVerdict,
+  playbackRateForWpm,
+} from "./services/paceConfig.js";
 import { autoGrow, formatTime, toast } from "./utils.js";
 
 const loading = document.getElementById("loading");
@@ -248,9 +258,231 @@ document.getElementById("btn-copy").addEventListener("click", async () => {
   }
 });
 
+const paceTuner = document.getElementById("pace-tuner");
+const paceSlider = document.getElementById("pace-slider");
+const paceWpmLabel = document.getElementById("pace-wpm-label");
+const paceBandRange = document.getElementById("pace-band-range");
+const paceAiRec = document.getElementById("pace-ai-rec");
+const paceVerdict = document.getElementById("pace-verdict");
+const pacePreviewBtn = document.getElementById("pace-preview");
+const paceStartBtn = document.getElementById("pace-start");
+const paceCancelBtn = document.getElementById("pace-cancel");
+
+let paceRecommendedWpm = DEFAULT_PACE_TARGET_WPM;
+let pacePreviewAudio = null;
+let paceVerdictTimer = null;
+let paceAdviceSeq = 0;
+
+function previewSnippetFromScript() {
+  const state = getState();
+  const current = state.scriptSlides[state.currentSlideIndex];
+  const words = String(current?.script || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 28);
+  if (words.length >= 6) return words.join(" ");
+  return state.resolvedLanguage === "ru"
+    ? "Сегодня я расскажу, почему это важно для вашей аудитории прямо сейчас."
+    : "Today I'll show why this matters for your audience — and what to do next.";
+}
+
+function syncPaceSliderUi(wpm) {
+  const target = clampPaceTarget(wpm);
+  const bands = derivePaceBands(target);
+  paceSlider.min = String(PACE_TARGET_MIN);
+  paceSlider.max = String(PACE_TARGET_MAX);
+  paceSlider.value = String(target);
+  paceWpmLabel.textContent = `${target} wpm`;
+  paceBandRange.textContent = `${bands.healthyMin}–${bands.healthyMax}`;
+  return bands;
+}
+
+function setPaceVerdict(verdict, message) {
+  paceVerdict.dataset.verdict = verdict || "similar";
+  paceVerdict.textContent = message || "";
+}
+
+async function refreshPaceVerdict(chosenWpm) {
+  const seq = ++paceAdviceSeq;
+  const local = localPaceVerdict(chosenWpm, paceRecommendedWpm);
+  setPaceVerdict(local.verdict, local.message);
+  try {
+    const data = await fetchPaceAdvice({
+      mode: "evaluate",
+      chosenWpm,
+      recommendedWpm: paceRecommendedWpm,
+      purpose: getPurposeString(),
+      audience: getState().setup.audience || undefined,
+      tone: getState().setup.tone,
+      targetMinutes: getState().setup.targetMinutes,
+      language: getResolvedLanguage(),
+    });
+    if (seq !== paceAdviceSeq) return;
+    setPaceVerdict(data.verdict, data.message);
+  } catch {
+    /* keep local verdict */
+  }
+}
+
+function stopPacePreview() {
+  if (pacePreviewAudio) {
+    try {
+      pacePreviewAudio.pause();
+    } catch {
+      /* ignore */
+    }
+    pacePreviewAudio = null;
+  }
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function playPacePreview(wpm) {
+  const text = previewSnippetFromScript();
+  const rate = playbackRateForWpm(wpm);
+  const language = getResolvedLanguage();
+  stopPacePreview();
+  pacePreviewBtn.disabled = true;
+  pacePreviewBtn.textContent = "Playing…";
+  try {
+    try {
+      const blob = await speakText(text, language, { speed: rate });
+      const url = URL.createObjectURL(blob);
+      pacePreviewAudio = new Audio(url);
+      // Double-apply rate so preview still shifts if TTS ignored speed
+      pacePreviewAudio.playbackRate = Math.min(1.35, Math.max(0.85, rate));
+      await pacePreviewAudio.play();
+      pacePreviewAudio.onended = () => {
+        URL.revokeObjectURL(url);
+        pacePreviewAudio = null;
+      };
+    } catch {
+      await new Promise((resolve, reject) => {
+        if (!window.speechSynthesis) {
+          reject(new Error("Speech synthesis unavailable."));
+          return;
+        }
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = language === "ru" ? "ru-RU" : "en-US";
+        u.rate = rate;
+        u.onend = () => resolve();
+        u.onerror = () => reject(new Error("Browser voice failed."));
+        window.speechSynthesis.speak(u);
+      });
+    }
+  } finally {
+    pacePreviewBtn.disabled = false;
+    pacePreviewBtn.textContent = "Hear this pace";
+  }
+}
+
+async function openPaceTuner() {
+  const state = getState();
+  const fallback = localPaceRecommendation({
+    tone: state.setup.tone,
+    purpose: getPurposeString(),
+    language: getResolvedLanguage(),
+    targetMinutes: state.setup.targetMinutes,
+  });
+  paceRecommendedWpm = fallback.recommendedWpm;
+  // Resume last confirmed target, otherwise land on the local AI fallback
+  const initial = clampPaceTarget(
+    state.setup.paceConfirmed
+      ? state.setup.paceTargetWpm
+      : paceRecommendedWpm
+  );
+  syncPaceSliderUi(initial);
+  paceAiRec.innerHTML =
+    "Asking AI for a steady pace that fits this pitch…";
+  setPaceVerdict(
+    "similar",
+    "Move the slider to hear the pace and get a coaching note."
+  );
+  paceTuner.hidden = false;
+
+  try {
+    const data = await fetchPaceAdvice({
+      mode: "recommend",
+      purpose: getPurposeString(),
+      audience: state.setup.audience || undefined,
+      tone: state.setup.tone,
+      targetMinutes: state.setup.targetMinutes,
+      language: getResolvedLanguage(),
+      deckTitle: state.deckTitle,
+      scriptSample: previewSnippetFromScript(),
+    });
+    paceRecommendedWpm = clampPaceTarget(data.recommendedWpm);
+    updateSetup({ paceRecommendedWpm });
+    paceAiRec.innerHTML = `AI recommends <strong>${paceRecommendedWpm} wpm</strong>. ${
+      data.rationale || fallback.rationale
+    }`;
+    if (!state.setup.paceConfirmed) {
+      syncPaceSliderUi(paceRecommendedWpm);
+    }
+    void refreshPaceVerdict(Number(paceSlider.value));
+    void playPacePreview(Number(paceSlider.value));
+  } catch {
+    paceRecommendedWpm = fallback.recommendedWpm;
+    updateSetup({ paceRecommendedWpm });
+    paceAiRec.innerHTML = `AI recommends <strong>${paceRecommendedWpm} wpm</strong>. ${fallback.rationale}`;
+    if (!state.setup.paceConfirmed) syncPaceSliderUi(paceRecommendedWpm);
+    const v = localPaceVerdict(Number(paceSlider.value), paceRecommendedWpm);
+    setPaceVerdict(v.verdict, v.message);
+    void playPacePreview(Number(paceSlider.value));
+  }
+}
+
+function closePaceTuner() {
+  stopPacePreview();
+  paceTuner.hidden = true;
+  if (paceVerdictTimer) {
+    clearTimeout(paceVerdictTimer);
+    paceVerdictTimer = null;
+  }
+}
+
 document.getElementById("btn-rehearse").addEventListener("click", () => {
   if (!hasScript()) return;
+  openPaceTuner();
+});
+
+paceCancelBtn?.addEventListener("click", () => closePaceTuner());
+
+paceStartBtn?.addEventListener("click", () => {
+  const target = clampPaceTarget(Number(paceSlider.value));
+  updateSetup({
+    paceTargetWpm: target,
+    paceRecommendedWpm,
+    paceConfirmed: true,
+  });
+  closePaceTuner();
   window.location.href = "/rehearse";
+});
+
+paceSlider?.addEventListener("input", () => {
+  const wpm = Number(paceSlider.value);
+  syncPaceSliderUi(wpm);
+  if (paceVerdictTimer) clearTimeout(paceVerdictTimer);
+  paceVerdictTimer = setTimeout(() => {
+    void refreshPaceVerdict(wpm);
+    void playPacePreview(wpm);
+  }, 320);
+});
+
+pacePreviewBtn?.addEventListener("click", () => {
+  void playPacePreview(Number(paceSlider.value));
+});
+
+paceTuner?.addEventListener("click", (e) => {
+  if (e.target === paceTuner) closePaceTuner();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && paceTuner && !paceTuner.hidden) closePaceTuner();
 });
 
 document.getElementById("btn-regen-all").addEventListener("click", () => {

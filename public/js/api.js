@@ -96,14 +96,27 @@ export async function transcribeAudio(blobOrForm, language, meta = {}) {
   return res.json();
 }
 
-export async function speakText(text, language) {
+export async function speakText(text, language, options = {}) {
+  const body = { text, language };
+  if (options.speed != null) body.speed = options.speed;
   const res = await NetworkClient.fetch("/api/speak", {
     method: "POST",
     headers: NetworkClient.getJsonHeaders(),
-    body: JSON.stringify({ text, language }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.blob();
+}
+
+/** AI pace recommendation / better-worse verdict for the pre-start tuner */
+export async function fetchPaceAdvice(payload) {
+  const res = await NetworkClient.fetch("/api/pace-advice", {
+    method: "POST",
+    headers: NetworkClient.getJsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
 }
 
 /** Silence Sentinel → Gemini crowd override (+ optional heckle TTS). */

@@ -405,7 +405,7 @@ ${deck}`,
 
   router.post("/speak", async (req, res) => {
     try {
-      const { text, language } = req.body || {};
+      const { text, language, speed } = req.body || {};
       if (!text || !String(text).trim()) {
         return res.status(400).json({ error: "Missing text." });
       }
@@ -414,12 +414,35 @@ ${deck}`,
 
       const openai = new OpenAI({ apiKey: key });
       const voice = language === "ru" ? "nova" : "alloy";
-      const speech = await openai.audio.speech.create({
+      const pace =
+        speed != null
+          ? Math.min(1.5, Math.max(0.7, Number(speed) || 1))
+          : undefined;
+      const speechOpts = {
         model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
         voice,
         input: String(text).slice(0, 4096),
         response_format: "mp3",
-      });
+      };
+      // speed is supported on tts-1 / tts-1-hd; ignore if model rejects it
+      if (pace != null) speechOpts.speed = pace;
+
+      let speech;
+      try {
+        speech = await openai.audio.speech.create(speechOpts);
+      } catch (modelErr) {
+        const fallback = {
+          model: "tts-1",
+          voice,
+          input: String(text).slice(0, 4096),
+          response_format: "mp3",
+        };
+        if (pace != null) fallback.speed = pace;
+        speech = await openai.audio.speech.create(fallback);
+        if (!String(modelErr?.message || "").includes("model")) {
+          console.warn("[speak] primary TTS failed, used tts-1", modelErr.message);
+        }
+      }
 
       const buf = Buffer.from(await speech.arrayBuffer());
       res.setHeader("Content-Type", "audio/mpeg");
@@ -427,25 +450,111 @@ ${deck}`,
       res.send(buf);
     } catch (err) {
       console.error("[speak]", err);
-      // fallback model name if mini-tts unavailable
-      try {
-        if (String(err?.message || "").includes("model")) {
-          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-          const speech = await openai.audio.speech.create({
-            model: "tts-1",
-            voice: req.body?.language === "ru" ? "nova" : "alloy",
-            input: String(req.body.text).slice(0, 4096),
-            response_format: "mp3",
-          });
-          const buf = Buffer.from(await speech.arrayBuffer());
-          res.setHeader("Content-Type", "audio/mpeg");
-          return res.send(buf);
-        }
-      } catch (err2) {
-        console.error("[speak fallback]", err2);
-      }
       res.status(500).json({
         error: err instanceof Error ? err.message : "TTS failed.",
+      });
+    }
+  });
+
+  /**
+   * Pre-pitch pace tuner — recommend a target WPM, or judge a chosen pace
+   * as better / worse / similar vs that recommendation.
+   */
+  router.post("/pace-advice", async (req, res) => {
+    try {
+      const body = req.body || {};
+      const mode = body.mode === "evaluate" ? "evaluate" : "recommend";
+      const tone = body.tone || "confident";
+      const purpose = body.purpose || "pitch";
+      const audience = body.audience || "general";
+      const language = body.language === "ru" ? "ru" : "en";
+      const langLabel = language === "ru" ? "Russian" : "English";
+      const targetMinutes = Number(body.targetMinutes) || 10;
+      const chosenWpm = Number(body.chosenWpm) || 0;
+      const recommendedWpm = Number(body.recommendedWpm) || 0;
+
+      const key = process.env.GROQ_LLM_API_KEY;
+      if (!key) {
+        return res.status(503).json({ error: "GROQ_LLM_API_KEY is not set." });
+      }
+
+      const groq = new Groq({ apiKey: key });
+      let userContent;
+      if (mode === "evaluate") {
+        userContent = `Mode: evaluate
+Language: ${langLabel}
+Tone: ${tone}
+Purpose: ${purpose}
+Audience: ${audience}
+Duration: ${targetMinutes} minutes
+AI recommended WPM: ${recommendedWpm || "unknown"}
+User chose WPM: ${chosenWpm}
+
+Return ONLY JSON:
+{"verdict":"better"|"worse"|"similar","message":"1 short coaching sentence about whether this pace helps or hurts for THIS pitch"}
+Verdict guide: within ~8 of recommended → similar; slightly faster (up to ~22) for energetic/sales rooms → better; much faster or much slower → worse. Be specific.`;
+      } else {
+        userContent = `Mode: recommend
+Language: ${langLabel}
+Tone: ${tone}
+Purpose: ${purpose}
+Audience: ${audience}
+Duration: ${targetMinutes} minutes
+Deck title: ${body.deckTitle || ""}
+Script sample: ${String(body.scriptSample || "").slice(0, 500)}
+
+Recommend a speaking pace (words per minute) for a live pitch rehearsal.
+Prefer a brisk-but-clear steady band — modern pitches often sit ~145–170 WPM, not sluggish 120.
+Energetic/sales/investor → higher; formal/training → lower. Clamp 120–200.
+
+Return ONLY JSON:
+{"recommendedWpm":number,"rationale":"1–2 short sentences why this pace fits"}`;
+      }
+
+      const completion = await groq.chat.completions.create({
+        model: process.env.GROQ_LLM_MODEL || "llama-3.3-70b-versatile",
+        temperature: 0.45,
+        max_tokens: 400,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a concise pitch coach for speaking pace. Output JSON only. No markdown.",
+          },
+          { role: "user", content: userContent },
+        ],
+      });
+
+      const raw = completion.choices[0]?.message?.content || "{}";
+      const parsed = parseJsonLoose(raw);
+
+      if (mode === "evaluate") {
+        const verdict = String(parsed.verdict || "similar")
+          .toLowerCase()
+          .trim();
+        const allowed = new Set(["better", "worse", "similar"]);
+        return res.json({
+          mode: "evaluate",
+          verdict: allowed.has(verdict) ? verdict : "similar",
+          message: String(parsed.message || "").trim() ||
+            "Hold near the recommended pace for steady attention.",
+        });
+      }
+
+      let wpm = Math.round(Number(parsed.recommendedWpm) || 155);
+      wpm = Math.min(200, Math.max(120, wpm));
+      return res.json({
+        mode: "recommend",
+        recommendedWpm: wpm,
+        rationale:
+          String(parsed.rationale || "").trim() ||
+          "Aim for a brisk, clear steady pace that keeps the room with you.",
+      });
+    } catch (err) {
+      console.error("[pace-advice]", err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "Pace advice failed.",
       });
     }
   });

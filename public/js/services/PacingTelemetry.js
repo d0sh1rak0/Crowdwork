@@ -2,19 +2,24 @@
  * PacingTelemetry — Vocal Attention Matrix engine.
  *
  * - Pause clock (≥1.5s without STT words)
- * - 5s moving WPM window with 120–150 healthy band
+ * - 5s moving WPM window with configurable healthy band (default ~135–180)
  * - Clear / unclear speech classification
  * - Live pacing overlay events (RUSHING / TOO SLOW)
  */
 
 import audioTranscriptionService from "./AudioTranscriptionService.js";
+import {
+  DEFAULT_PACE_TARGET_WPM,
+  derivePaceBands,
+} from "./paceConfig.js";
 
 const PAUSE_THRESHOLD_MS = 1500;
 const WPM_WINDOW_MS = 5000;
-const HEALTHY_MIN = 120;
-const HEALTHY_MAX = 150;
-const RUSH_WPM = 160;
-const SLOW_WPM = 110;
+const DEFAULT_BANDS = derivePaceBands(DEFAULT_PACE_TARGET_WPM);
+const HEALTHY_MIN = DEFAULT_BANDS.healthyMin;
+const HEALTHY_MAX = DEFAULT_BANDS.healthyMax;
+const RUSH_WPM = DEFAULT_BANDS.rushWpm;
+const SLOW_WPM = DEFAULT_BANDS.slowWpm;
 
 /** Placeholder / non-lexical Whisper junk */
 const UNCLEAR_RE =
@@ -43,6 +48,11 @@ class PacingTelemetry {
     this.wpm = 0;
     this.pacingBand = "idle"; // idle | slow | healthy | rush
     this.clarity = "unknown"; // clear | unclear | unknown
+    this.targetWpm = DEFAULT_PACE_TARGET_WPM;
+    this.healthyMin = HEALTHY_MIN;
+    this.healthyMax = HEALTHY_MAX;
+    this.rushWpm = RUSH_WPM;
+    this.slowWpm = SLOW_WPM;
     this._loopId = null;
     this._pauseLatched = false;
     this._onSeverePause = null;
@@ -61,6 +71,26 @@ class PacingTelemetry {
     this._lastRushAt = 0;
     this._lastSlowAt = 0;
     this._healthySince = null;
+  }
+
+  /**
+   * Apply user / AI pace target before a rehearsal starts.
+   * @param {number|{ targetWpm?: number, healthyMin?: number, healthyMax?: number, rushWpm?: number, slowWpm?: number }} config
+   */
+  configureFromTarget(config = DEFAULT_PACE_TARGET_WPM) {
+    const bands =
+      typeof config === "number"
+        ? derivePaceBands(config)
+        : {
+            ...derivePaceBands(config.targetWpm ?? DEFAULT_PACE_TARGET_WPM),
+            ...config,
+          };
+    this.targetWpm = bands.targetWpm;
+    this.healthyMin = bands.healthyMin;
+    this.healthyMax = bands.healthyMax;
+    this.rushWpm = bands.rushWpm;
+    this.slowWpm = bands.slowWpm;
+    return bands;
   }
 
   /**
@@ -174,14 +204,19 @@ class PacingTelemetry {
     const now = Date.now();
     const wordsInWindow = this.wordEvents.reduce((a, e) => a + e.n, 0);
 
+    const rushWpm = this.rushWpm;
+    const slowWpm = this.slowWpm;
+    const healthyMin = this.healthyMin;
+    const healthyMax = this.healthyMax;
+
     // Need enough lexical mass before judging slow/rush
-    if (wordsInWindow < 4 && wpm < RUSH_WPM) {
+    if (wordsInWindow < 4 && wpm < rushWpm) {
       this.pacingBand = "idle";
       this._healthySince = null;
       return;
     }
 
-    if (wpm >= RUSH_WPM) {
+    if (wpm >= rushWpm) {
       this.pacingBand = "rush";
       this._healthySince = null;
       if (now - this._lastRushAt > 3500) {
@@ -192,7 +227,7 @@ class PacingTelemetry {
       return;
     }
 
-    if (wpm > 0 && wpm < SLOW_WPM && wordsInWindow >= 6) {
+    if (wpm > 0 && wpm < slowWpm && wordsInWindow >= 6) {
       this.pacingBand = "slow";
       this._healthySince = null;
       if (now - this._lastSlowAt > 4000) {
@@ -203,7 +238,7 @@ class PacingTelemetry {
       return;
     }
 
-    if (wpm >= HEALTHY_MIN && wpm <= HEALTHY_MAX) {
+    if (wpm >= healthyMin && wpm <= healthyMax) {
       this.pacingBand = "healthy";
       if (this._healthySince == null) this._healthySince = now;
       // Sustained healthy band across a full 5s sampling block
@@ -219,7 +254,7 @@ class PacingTelemetry {
     }
 
     this.pacingBand = fromSpeech ? "idle" : this.pacingBand;
-    if (wpm < HEALTHY_MIN || wpm > HEALTHY_MAX) {
+    if (wpm < healthyMin || wpm > healthyMax) {
       this._healthySince = null;
     }
   }
@@ -292,6 +327,11 @@ class PacingTelemetry {
       wpm: this.getWindowWpm(),
       pacingBand: this.pacingBand,
       clarity: this.clarity,
+      targetWpm: this.targetWpm,
+      healthyMin: this.healthyMin,
+      healthyMax: this.healthyMax,
+      rushWpm: this.rushWpm,
+      slowWpm: this.slowWpm,
     };
   }
 }

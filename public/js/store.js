@@ -1,4 +1,5 @@
 import { estimateSeconds, resolveLanguage } from "./utils.js";
+import { DEFAULT_PACE_TARGET_WPM } from "./services/paceConfig.js";
 
 const KEY = "crowdwork-deck-v1";
 
@@ -10,6 +11,12 @@ const defaultSetup = () => ({
   language: "auto",
   audience: "",
   notes: "",
+  /** Center of the healthy / steady WPM band (set in pre-pitch tuner) */
+  paceTargetWpm: DEFAULT_PACE_TARGET_WPM,
+  /** Last AI recommendation shown in the pace tuner */
+  paceRecommendedWpm: null,
+  /** True once the user confirms a pace in the tuner */
+  paceConfirmed: false,
 });
 
 function blank() {

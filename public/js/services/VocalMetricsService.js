@@ -9,6 +9,10 @@
  */
 
 import pacingTelemetry from "./PacingTelemetry.js";
+import {
+  DEFAULT_PACE_TARGET_WPM,
+  derivePaceBands,
+} from "./paceConfig.js";
 
 const DEFAULT_FILLERS = [
   "uh",
@@ -45,7 +49,7 @@ function wordCount(text) {
 class VocalMetricsService {
   constructor() {
     this.pauseThresholdMs = 1500;
-    this.rushedWpm = 160;
+    this.rushedWpm = derivePaceBands(DEFAULT_PACE_TARGET_WPM).rushWpm;
     this.windowMs = 10000;
     this.fillers = DEFAULT_FILLERS;
 
@@ -69,6 +73,23 @@ class VocalMetricsService {
       onMonotone: null,
       onMetrics: null,
     };
+  }
+
+  /**
+   * Keep rush threshold aligned with PacingTelemetry / pace tuner.
+   * @param {number|{ rushWpm?: number, targetWpm?: number }} config
+   */
+  configureFromTarget(config = DEFAULT_PACE_TARGET_WPM) {
+    if (typeof config === "number") {
+      this.rushedWpm = derivePaceBands(config).rushWpm;
+    } else if (config?.rushWpm != null) {
+      this.rushedWpm = Number(config.rushWpm) || this.rushedWpm;
+    } else {
+      this.rushedWpm = derivePaceBands(
+        config?.targetWpm ?? DEFAULT_PACE_TARGET_WPM
+      ).rushWpm;
+    }
+    return this.rushedWpm;
   }
 
   start(handlers = {}) {

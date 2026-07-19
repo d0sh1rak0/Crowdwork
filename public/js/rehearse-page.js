@@ -216,6 +216,7 @@ function startRun() {
   showControls();
   renderSlide();
   startTimers();
+  applyPaceSettingsFromStore();
   audience?.start();
   startSilenceSentinel();
   startVocalMetrics();
@@ -235,8 +236,19 @@ function startRun() {
   }
 }
 
+function applyPaceSettingsFromStore() {
+  const target =
+    Number(state().setup?.paceTargetWpm) ||
+    pacingTelemetry.targetWpm ||
+    155;
+  const bands = pacingTelemetry.configureFromTarget(target);
+  vocalMetricsService.configureFromTarget(bands);
+  return bands;
+}
+
 function startVocalMetrics() {
   // Fillers / monotone only — pause + pacing band owned by PacingTelemetry
+  applyPaceSettingsFromStore();
   vocalMetricsService.start({
     onPauseStart: null,
     onPauseTick: null,

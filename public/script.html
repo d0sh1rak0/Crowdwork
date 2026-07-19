@@ -103,6 +103,49 @@
       </main>
     </div>
 
+    <div id="pace-tuner" class="pace-tuner" hidden>
+      <div class="pace-tuner-panel" role="dialog" aria-modal="true" aria-labelledby="pace-tuner-title">
+        <p class="pace-tuner-kicker font-utility">Before you start</p>
+        <h2 id="pace-tuner-title" class="font-display">Set your steady pace</h2>
+        <p id="pace-ai-rec" class="pace-ai-rec">Asking AI for a pace that fits this pitch…</p>
+
+        <div class="pace-slider-block">
+          <div class="pace-slider-head">
+            <label for="pace-slider">Target pace</label>
+            <span id="pace-wpm-label" class="font-utility">155 wpm</span>
+          </div>
+          <input
+            id="pace-slider"
+            class="pace-slider"
+            type="range"
+            min="120"
+            max="200"
+            step="1"
+            value="155"
+          />
+          <div class="pace-band-hint font-utility">
+            Steady band: <span id="pace-band-range">135–180</span> wpm
+          </div>
+        </div>
+
+        <div class="pace-preview-row">
+          <button id="pace-preview" class="btn btn-outline btn-sm" type="button">
+            Hear this pace
+          </button>
+          <p id="pace-verdict" class="pace-verdict" data-verdict="similar">
+            Move the slider to hear the pace and get a coaching note.
+          </p>
+        </div>
+
+        <div class="pace-tuner-actions">
+          <button id="pace-cancel" class="btn btn-ghost" type="button">Cancel</button>
+          <button id="pace-start" class="btn btn-primary" type="button">
+            Start pitch at this pace
+          </button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/js/boot-security.js"></script>
     <script type="module" src="/js/script-page.js"></script>
   </body>

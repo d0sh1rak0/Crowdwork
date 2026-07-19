@@ -1595,3 +1595,130 @@ a:hover {
     transparent 70%
   );
 }
+
+/* Pre-pitch pace tuner */
+.pace-tuner {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(242, 163, 60, 0.12), transparent 55%),
+    rgba(8, 9, 11, 0.82);
+  backdrop-filter: blur(8px);
+}
+.pace-tuner[hidden] {
+  display: none !important;
+}
+.pace-tuner-panel {
+  width: min(440px, 100%);
+  padding: 1.5rem 1.4rem 1.35rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    linear-gradient(165deg, rgba(36, 38, 44, 0.98), rgba(22, 24, 28, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  animation: pace-panel-in 280ms ease-out;
+}
+@keyframes pace-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pace-tuner-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+.pace-tuner-panel h2 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.pace-ai-rec {
+  margin: 0.65rem 0 1.25rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.pace-ai-rec strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.pace-slider-block {
+  margin-bottom: 1.1rem;
+}
+.pace-slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+  font-size: 0.875rem;
+}
+.pace-slider-head label {
+  color: var(--muted);
+}
+#pace-wpm-label {
+  font-size: 1rem;
+  color: var(--amber-hi);
+}
+.pace-slider {
+  width: 100%;
+  accent-color: var(--amber);
+  cursor: pointer;
+}
+.pace-band-hint {
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.pace-preview-row {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 1.25rem;
+}
+.pace-verdict {
+  margin: 0;
+  min-height: 2.6em;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--muted);
+  transition: color 180ms ease;
+}
+.pace-verdict[data-verdict="better"] {
+  color: #8fd49a;
+}
+.pace-verdict[data-verdict="worse"] {
+  color: #ffb4a8;
+}
+.pace-verdict[data-verdict="similar"] {
+  color: var(--amber-hi);
+}
+.pace-tuner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 520px) {
+  .pace-tuner-panel {
+    padding: 1.25rem 1.1rem 1.15rem;
+  }
+  .pace-tuner-actions {
+    flex-direction: column-reverse;
+  }
+  .pace-tuner-actions .btn {
+    width: 100%;
+  }
+}
