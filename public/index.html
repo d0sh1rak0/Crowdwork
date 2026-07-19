@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="/" />
+    <title>Crowdwork — Write the talk. Rehearse the stage.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/app.css" />
+    <link rel="icon" href="/logo.svg" />
+  </head>
+  <body>
+    <div id="secure-context-banner" class="secure-context-banner" role="alert" hidden></div>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <img src="/logo.svg" alt="" width="28" height="28" />
+        Crowdwork
+      </a>
+    </header>
+
+    <main class="page">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <h1 class="page-title">Crowdwork</h1>
+      <p class="page-sub">
+        Turn a deck into a spoken script. Then pitch it under the lights — with a live audience.
+      </p>
+
+      <div
+        id="upload-zone"
+        class="upload-zone"
+        role="button"
+        tabindex="0"
+        aria-label="Upload PDF deck"
+      >
+        <h2>Drop your deck PDF</h2>
+        <p>Or click to browse · one file · ≤ 20 MB · ≤ 40 pages</p>
+        <p class="hint">
+          Have a .pptx? Export it as PDF first — File → Export → PDF.
+        </p>
+        <input id="file-input" type="file" accept="application/pdf,.pdf" hidden />
+      </div>
+      <p id="upload-error" class="error-inline hidden" role="alert"></p>
+
+      <div class="or-divider" aria-hidden="true"><span>or</span></div>
+
+      <section class="script-import" id="script-import">
+        <label class="field" for="script-paste">Paste your full script</label>
+        <textarea
+          id="script-paste"
+          class="textarea script-paste"
+          rows="8"
+          placeholder="Paste the whole talk. Use --- or [Slide] between sections — or just paste continuously and we’ll split every ~120 words.
+
+Example:
+Hook and problem…
+---
+Solution and demo…
+---
+The ask."
+        ></textarea>
+        <div class="script-import-actions">
+          <button id="parse-script-btn" class="btn btn-outline" type="button">
+            Split into slides
+          </button>
+          <span id="parse-meta" class="parse-meta font-utility"></span>
+        </div>
+        <div id="parsed-stack" class="parsed-stack hidden"></div>
+      </section>
+
+      <section id="thumb-section" class="thumb-grid hidden">
+        <p id="progress" class="progress font-utility"></p>
+        <div id="thumbs" class="thumbs"></div>
+      </section>
+
+      <form id="setup-form" class="setup-form">
+        <div class="form-block">
+          <label class="field" for="purpose">Purpose</label>
+          <select id="purpose" class="select" required>
+            <option value="" disabled selected>Select purpose</option>
+            <option>Investor pitch</option>
+            <option>Startup competition</option>
+            <option>Sales demo</option>
+            <option>Conference talk</option>
+            <option>University defense</option>
+            <option>Other</option>
+          </select>
+          <input
+            id="purpose-other"
+            class="input hidden"
+            style="margin-top: 0.5rem"
+            placeholder="Describe the purpose"
+          />
+        </div>
+
+        <div class="form-block">
+          <span class="field">Target duration</span>
+          <div id="durations" class="chip-row"></div>
+        </div>
+
+        <div class="form-block">
+          <span class="field">Tone</span>
+          <div id="tones" class="chip-row"></div>
+        </div>
+
+        <div class="form-block">
+          <label class="field" for="language">Script language</label>
+          <select id="language" class="select">
+            <option value="auto" selected>Auto</option>
+            <option value="en">English</option>
+            <option value="ru">Русский</option>
+          </select>
+        </div>
+
+        <div class="form-block">
+          <label class="field" for="audience">Audience (optional)</label>
+          <input
+            id="audience"
+            class="input"
+            placeholder="3 judges, mixed technical background"
+          />
+        </div>
+
+        <div class="form-block">
+          <label class="field" for="notes">Notes for the AI (optional)</label>
+          <textarea
+            id="notes"
+            class="textarea"
+            rows="3"
+            placeholder="The ask is $200k for 10%. Emphasize traction on slide 6."
+          ></textarea>
+        </div>
+
+        <button id="write-btn" class="btn btn-primary btn-lg" type="submit">
+          Write my script
+        </button>
+      </form>
+    </main>
+
+    <script type="module" src="/js/boot-security.js"></script>
+    <script type="module" src="/js/upload-page.js"></script>
+  </body>
+</html>

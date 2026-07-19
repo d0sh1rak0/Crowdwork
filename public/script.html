@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="/" />
+    <title>Script studio — Crowdwork</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/app.css" />
+    <link rel="icon" href="/logo.svg" />
+  </head>
+  <body>
+    <div id="secure-context-banner" class="secure-context-banner" role="alert" hidden></div>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <img src="/logo.svg" alt="" width="28" height="28" />
+        Crowdwork
+      </a>
+      <div class="header-actions">
+        <div id="header-meta" class="hidden" style="text-align: right">
+          <div id="deck-title" class="font-display" style="font-size: 0.875rem"></div>
+          <div id="time-estimate" class="font-utility" style="font-size: 0.75rem; color: var(--muted)"></div>
+        </div>
+        <button id="btn-regen-all" class="btn btn-outline btn-sm" type="button">
+          Regenerate all
+        </button>
+        <button id="btn-copy" class="btn btn-ghost btn-sm" type="button">
+          Copy full script
+        </button>
+        <button id="btn-rehearse" class="btn btn-primary btn-sm" type="button">
+          Start pitch
+        </button>
+      </div>
+    </header>
+
+    <div id="tone-bar" class="tone-bar">
+      <span style="font-size: 0.875rem; color: var(--muted)">Rewrite with tone:</span>
+      <div id="tone-chips" class="chip-row"></div>
+      <button id="tone-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
+    </div>
+
+    <div id="loading" class="studio hidden">
+      <aside class="rail">
+        <div class="skeleton" style="height: 64px; margin-bottom: 0.5rem"></div>
+        <div class="skeleton" style="height: 64px; margin-bottom: 0.5rem"></div>
+        <div class="skeleton" style="height: 64px; margin-bottom: 0.5rem"></div>
+        <div class="skeleton" style="height: 64px; margin-bottom: 0.5rem"></div>
+      </aside>
+      <div class="studio-main">
+        <div class="studio-inner">
+          <div class="skeleton" style="aspect-ratio: 16/9; width: 100%"></div>
+          <div class="skeleton" style="height: 160px; margin-top: 1.5rem"></div>
+          <p class="loading-msg">Writing your script…</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="empty" class="page hidden" style="text-align: center; padding-top: 6rem">
+      <p class="font-display" style="font-size: 1.25rem">Script not ready</p>
+      <p style="color: var(--muted); margin-top: 0.5rem">
+        Generation may have failed. Go back to retry, or upload a new deck.
+      </p>
+      <a href="/" style="display: inline-block; margin-top: 1.5rem">Back to upload</a>
+    </div>
+
+    <div id="studio" class="studio hidden">
+      <aside id="rail" class="rail"></aside>
+      <main class="studio-main">
+        <div class="studio-inner">
+          <div class="mobile-nav">
+            <button id="prev-slide" class="btn btn-ghost btn-sm" type="button">← Prev</button>
+            <span id="mobile-meta" class="font-utility" style="font-size: 0.875rem; color: var(--muted)"></span>
+            <button id="next-slide" class="btn btn-ghost btn-sm" type="button">Next →</button>
+          </div>
+          <div class="slide-view">
+            <img id="slide-img" alt="Current slide" />
+          </div>
+          <textarea id="script-area" class="script-area" spellcheck="true"></textarea>
+          <p id="tip" class="tip"></p>
+          <div class="action-row">
+            <button id="btn-regen" class="btn btn-outline btn-sm" type="button">Regenerate</button>
+            <button id="btn-reset" class="btn btn-ghost btn-sm" type="button">
+              Reset to AI version
+            </button>
+            <button id="btn-speak" class="btn btn-ghost btn-sm" type="button">
+              Play voice
+            </button>
+          </div>
+          <div id="regen-row" class="regen-row">
+            <input
+              id="regen-input"
+              class="input"
+              placeholder='How should it change? e.g. "shorter", "punchier"'
+            />
+            <button id="regen-apply" class="btn btn-primary" type="button">Apply</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/js/boot-security.js"></script>
+    <script type="module" src="/js/script-page.js"></script>
+  </body>
+</html>
