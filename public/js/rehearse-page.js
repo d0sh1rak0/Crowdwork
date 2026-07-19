@@ -3,10 +3,11 @@ import {
   fetchObjections,
   requestHeckle,
   toastRetry,
-  transcribeAudio,
 } from "./api.js";
 import { createAudienceEngine } from "./audience.js";
+import SessionCoordinator from "./coordination/SessionCoordinator.js";
 import WaveformVisualizer from "./components/WaveformVisualizer.js";
+import pacingTelemetry from "./services/PacingTelemetry.js";
 import sessionTimerService from "./services/SessionTimerService.js";
 import vocalMetricsService from "./services/VocalMetricsService.js";
 import {
@@ -56,16 +57,15 @@ let finalWords = 0;
 
 let mediaStream = null;
 let audioStream = null;
-let mediaRecorder = null;
-let chunks = [];
-let recordTimer = null;
+let sessionCoordinator = null;
 let waveform = null;
 let audience = null;
 let attentionSnapshot = null;
 let heckleAudio = null;
 let heckleInFlight = false;
 let hesitationApplied = false;
-let pauseDriftTimer = null;
+let liveTranscriptParts = [];
+let unsubPacing = null;
 
 function state() {
   return getState();
@@ -221,21 +221,11 @@ function startRun() {
 }
 
 function startVocalMetrics() {
+  // Fillers / WPM / monotone only — pause decay is owned by PacingTelemetry
   vocalMetricsService.start({
-    onPauseStart: (pauseMs) => {
-      if (phase !== "running" || paused) return;
-      audience?.onTextPause(pauseMs);
-    },
-    onPauseTick: (pauseMs) => {
-      if (phase !== "running" || paused) return;
-      // Continuous drift only after the 1.5s precision threshold
-      audience?.onTextPause(pauseMs);
-    },
-    onPauseEnd: () => {
-      if (phase !== "running") return;
-      audience?.onSpeechResume();
-      hesitationApplied = false;
-    },
+    onPauseStart: null,
+    onPauseTick: null,
+    onPauseEnd: null,
     onFiller: (word, total) => {
       if (phase !== "running" || paused) return;
       flashFillerWarning(word, total);
@@ -255,6 +245,19 @@ function startVocalMetrics() {
       updateMetricHud(m);
     },
   });
+}
+
+function decayAttentionMeter(pauseMs) {
+  if (phase !== "running" || paused) return;
+  audience?.onTextPause(pauseMs);
+  if (pauseMs >= 1500) setMetricState("Pause", "warn");
+}
+
+function onSpeechActivityResumed() {
+  if (phase !== "running") return;
+  audience?.onSpeechResume();
+  hesitationApplied = false;
+  sessionTimerService.resetSilenceCounter();
 }
 
 function flashFillerWarning(word, total) {
@@ -280,11 +283,48 @@ function updateMetricHud(m) {
   if (wpmEl) wpmEl.textContent = `${m.wpm || 0} wpm`;
   const fillersEl = document.getElementById("metric-fillers");
   if (fillersEl) fillersEl.textContent = `Fillers ${m.fillerTotal || 0}`;
+  const pacing = pacingTelemetry.getSnapshot();
   if (m.state === "RUSHED") setMetricState("Rushed", "danger");
   else if (m.state === "MONOTONE") setMetricState("Monotone", "warn");
-  else if (m.state === "PAUSING" || (m.pauseMs || 0) >= 1500)
-    setMetricState("Pause", "warn");
+  else if (pacing.pausing) setMetricState("Pause", "warn");
   else setMetricState("Steady", "steady");
+}
+
+function updateLiveTranscript(text) {
+  const el = document.getElementById("live-transcript");
+  if (!el) return;
+  liveTranscriptParts.push(text);
+  if (liveTranscriptParts.length > 12) liveTranscriptParts.shift();
+  el.textContent = liveTranscriptParts.join(" ");
+  el.classList.add("has-text");
+}
+
+/** STT text → metrics + attention reset (waveform alone must never reset meters). */
+function processTranscriptChunk(text) {
+  const clean = String(text || "").trim();
+  if (!clean) return;
+
+  // Belt-and-suspenders: coordinator already registered; keep clocks aligned
+  pacingTelemetry.registerSpeechActivity({ text: clean });
+  sessionTimerService.resetSilenceCounter();
+  hesitationApplied = false;
+
+  updateLiveTranscript(clean);
+
+  const slideIndex = index;
+  const prev = transcripts[slideIndex] || "";
+  transcripts[slideIndex] = (prev + " " + clean).trim();
+  const words = wordCount(clean);
+  finalWords += words;
+  speakingMs += Math.min(8000, Math.max(400, words * 350));
+
+  const metrics = vocalMetricsService.ingestTranscript(
+    clean,
+    state().resolvedLanguage
+  );
+  if (words >= 4 && metrics?.state === "STEADY") {
+    audience?.onGoodStretch();
+  }
 }
 
 /** Silence Sentinel — independent of MediaRecorder chunk delivery */
@@ -451,81 +491,42 @@ function renderSlide() {
 function startRecording() {
   const stream = audioStream || mediaStream;
   if (!stream) return;
-  chunks = [];
-  try {
-    mediaRecorder = new MediaRecorder(stream, {
-      mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm",
-    });
-  } catch {
-    micDenied = true;
-    micBanner.classList.remove("hidden");
-    return;
-  }
 
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data?.size) chunks.push(e.data);
-  };
-  mediaRecorder.start(1000);
-  // Faster STT cadence so 1.5s text-pause detection stays accurate
-  recordTimer = setInterval(() => flushTranscript(false), 2000);
-}
-
-async function flushTranscript(finalFlush) {
-  if (!mediaRecorder || micDenied || paused) return;
-  if (mediaRecorder.state === "recording") {
-    mediaRecorder.requestData();
-  }
-  await new Promise((r) => setTimeout(r, 120));
-  if (!chunks.length) return;
-
-  const blob = new Blob(chunks, { type: "audio/webm" });
-  chunks = [];
-  if (blob.size < 1200 && !finalFlush) return;
-
-  const slideIndex = index;
-  try {
-    const { text } = await transcribeAudio(blob, state().resolvedLanguage);
-    if (!text?.trim()) return;
-
-    // Exact moment valid speech returns — reset Silence Sentinel + text pause clock
+  liveTranscriptParts = [];
+  unsubPacing?.();
+  // Any speech-activity event (including coordinator seed) clears the heckle clock
+  unsubPacing = pacingTelemetry.subscribe((evt) => {
+    if (evt.type !== "speech") return;
     sessionTimerService.resetSilenceCounter();
     hesitationApplied = false;
+  });
 
-    const prev = transcripts[slideIndex] || "";
-    transcripts[slideIndex] = (prev + " " + text).trim();
-    const words = wordCount(text);
-    finalWords += words;
-    speakingMs += Math.min(8000, Math.max(400, words * 350));
+  sessionCoordinator = new SessionCoordinator();
+  sessionCoordinator.start(stream, {
+    shouldRun: () => phase === "running" && !paused && !micDenied,
+    getLanguage: () => state().resolvedLanguage || "en",
+    onTranscript: (text) => processTranscriptChunk(text),
+    onSeverePause: (pauseMs) => decayAttentionMeter(pauseMs),
+    onSpeechResume: () => onSpeechActivityResumed(),
+    onError: (err) => console.warn("[STT]", err),
+  });
+  sessionTimerService.resetSilenceCounter();
+}
 
-    // Text-driven metrics (fillers / WPM / monotone) — not waveform volume
-    const metrics = vocalMetricsService.ingestTranscript(
-      text,
-      state().resolvedLanguage
-    );
-    if (words >= 6 && metrics?.state === "STEADY") {
-      audience?.onGoodStretch();
-    }
-  } catch (err) {
-    console.warn("transcribe", err);
-  }
+async function flushTranscript() {
+  if (!sessionCoordinator) return;
+  await sessionCoordinator.flushFinal();
 }
 
 async function stopRecording() {
-  if (recordTimer) {
-    clearInterval(recordTimer);
-    recordTimer = null;
-  }
+  unsubPacing?.();
+  unsubPacing = null;
   waveform?.stop();
   waveform = null;
   audience?.stop();
   sessionTimerService.stopTracking();
   vocalMetricsService.stop();
-  if (pauseDriftTimer) {
-    clearInterval(pauseDriftTimer);
-    pauseDriftTimer = null;
-  }
+  pacingTelemetry.stopTelemetryLoop();
   if (heckleAudio) {
     try {
       heckleAudio.pause();
@@ -535,18 +536,11 @@ async function stopRecording() {
     heckleAudio = null;
   }
 
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    await new Promise((resolve) => {
-      mediaRecorder.onstop = resolve;
-      try {
-        mediaRecorder.stop();
-      } catch {
-        resolve();
-      }
-    });
-    await flushTranscript(true);
+  if (sessionCoordinator) {
+    await sessionCoordinator.flushFinal();
+    sessionCoordinator.stop();
+    sessionCoordinator = null;
   }
-  mediaRecorder = null;
 
   if (mediaStream) {
     mediaStream.getTracks().forEach((t) => t.stop());
@@ -558,7 +552,7 @@ async function stopRecording() {
 
 async function goNext() {
   const s = state();
-  await flushTranscript(true);
+  await flushTranscript();
   slideTimes[index] = slideElapsed;
   if (index >= s.scriptSlides.length - 1) {
     finishRun();
@@ -571,7 +565,7 @@ async function goNext() {
 
 async function goPrev() {
   if (index <= 0) return;
-  await flushTranscript(true);
+  await flushTranscript();
   slideTimes[index] = slideElapsed;
   index -= 1;
   slideElapsed = slideTimes[index] || 0;

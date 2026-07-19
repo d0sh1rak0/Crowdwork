@@ -1,10 +1,14 @@
 /**
  * Text-driven vocal metrics from Groq Whisper chunks.
- * - Conversational pause > 1.5s (timestamp engine)
  * - Parasite/filler word scan
  * - Rushed pacing (>160 WPM / 10s window)
  * - Monotone / flat delivery from chunk structure
+ *
+ * Pause / attention decay is owned by PacingTelemetry.registerSpeechActivity().
+ * This service still tracks lastTextAt for WPM windows and optional pause hooks.
  */
+
+import pacingTelemetry from "./PacingTelemetry.js";
 
 const DEFAULT_FILLERS = [
   "uh",
@@ -94,6 +98,9 @@ class VocalMetricsService {
   ingestTranscript(text, lang = "en") {
     const clean = String(text || "").trim();
     if (!clean) return null;
+
+    // Keep pacing clock in lockstep with any STT ingest path
+    pacingTelemetry.registerSpeechActivity({ text: clean });
 
     const now = performance.now();
     const wasPaused = this.pauseActive;

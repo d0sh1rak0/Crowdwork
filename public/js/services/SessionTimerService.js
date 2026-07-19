@@ -22,7 +22,6 @@ class SessionTimerService {
 
     this.timerInterval = setInterval(() => {
       this.silenceDuration += 1;
-      console.log(`Continuous silence duration: ${this.silenceDuration}s`);
 
       if (this._onTick) {
         this._onTick(this.silenceDuration, {

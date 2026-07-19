@@ -1450,6 +1450,31 @@ a:hover {
   transform: translate(-50%, -50%) scale(1);
 }
 
+.live-hearing {
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border);
+}
+.live-hearing-label {
+  margin: 0 0 0.25rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.live-transcript {
+  margin: 0;
+  min-height: 2.6em;
+  max-height: 4.8em;
+  overflow: hidden;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.live-transcript.has-text {
+  color: #e8e4dc;
+}
+
 .house-person.is-lean-back {
   transform: translateY(6px) scale(0.96);
 }
