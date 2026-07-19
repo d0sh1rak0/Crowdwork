@@ -34,11 +34,38 @@ function blank() {
   };
 }
 
+/**
+ * Persist a slim snapshot — drop multi‑MB JPEG data URLs from the critical path.
+ * Full-res images stay in the live in-memory state for the session.
+ */
+function toPersistable(s) {
+  return {
+    ...s,
+    isGenerating: false,
+    slides: (s.slides || []).map((slide) => ({
+      n: slide.n,
+      text: slide.text || "",
+      fromScript: Boolean(slide.fromScript),
+      // Small rail thumb only (keeps refresh usable without blocking stringify)
+      imageThumb: slide.imageThumb || null,
+    })),
+  };
+}
+
 function load() {
   try {
     const raw = sessionStorage.getItem(KEY);
     if (!raw) return blank();
-    return { ...blank(), ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    const merged = { ...blank(), ...parsed };
+    // Rehydrate display fields from thumbs when full images aren't in storage
+    merged.slides = (merged.slides || []).map((slide) => ({
+      ...slide,
+      imageDisplay: slide.imageDisplay || slide.imageThumb || "",
+      imageApi: slide.imageApi || null,
+      imageThumb: slide.imageThumb || slide.imageDisplay || "",
+    }));
+    return merged;
   } catch {
     return blank();
   }
@@ -46,12 +73,30 @@ function load() {
 
 let state = load();
 const listeners = new Set();
+/** @type {ReturnType<typeof setTimeout> | null} */
+let persistTimer = null;
 
-function persist() {
+function persistNow() {
   try {
-    sessionStorage.setItem(KEY, JSON.stringify(state));
+    sessionStorage.setItem(KEY, JSON.stringify(toPersistable(state)));
   } catch {
     /* quota / private mode */
+  }
+}
+
+/** Debounced / idle persist so generation paint is never blocked by stringify */
+function schedulePersist() {
+  if (persistTimer) clearTimeout(persistTimer);
+  const run = () => {
+    persistTimer = null;
+    persistNow();
+  };
+  if (typeof requestIdleCallback === "function") {
+    persistTimer = setTimeout(() => {
+      requestIdleCallback(run, { timeout: 800 });
+    }, 0);
+  } else {
+    persistTimer = setTimeout(run, 0);
   }
 }
 
@@ -64,15 +109,23 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-function set(partial) {
+/**
+ * @param {object} partial
+ * @param {{ persist?: boolean | 'defer' }} [opts]
+ *   - true (default): schedule deferred persist
+ *   - 'defer': same as true
+ *   - false: memory only (no sessionStorage write)
+ */
+function set(partial, opts = {}) {
   state = { ...state, ...partial };
-  persist();
+  const mode = opts.persist === false ? false : "defer";
+  if (mode === "defer") schedulePersist();
   listeners.forEach((fn) => fn(state));
 }
 
 export function resetAll() {
   state = blank();
-  persist();
+  persistNow();
   listeners.forEach((fn) => fn(state));
 }
 
@@ -103,25 +156,35 @@ export function getResolvedLanguage() {
   return resolveLanguage(state.setup.language, deckText);
 }
 
+/** Ephemeral UI flag — never blocks on sessionStorage */
 export function setGenerating(v) {
-  set({ isGenerating: v });
+  set({ isGenerating: v }, { persist: false });
 }
 
-export function setScriptSlides(slides) {
+/**
+ * Apply generated scripts to live state.
+ * @param {object[]} slides
+ * @param {{ persist?: boolean | 'defer' }} [opts]
+ */
+export function setScriptSlides(slides, opts = {}) {
   const lang = getResolvedLanguage();
-  set({
-    scriptSlides: slides,
-    resolvedLanguage: lang,
-    currentSlideIndex: 0,
-    rehearsalReport: null,
-    feedback: null,
-    objections: null,
-    isGenerating: false,
-  });
+  set(
+    {
+      scriptSlides: slides,
+      resolvedLanguage: lang,
+      currentSlideIndex: 0,
+      rehearsalReport: null,
+      feedback: null,
+      objections: null,
+      isGenerating: false,
+    },
+    { persist: opts.persist === false ? false : "defer" }
+  );
 }
 
 export function setCurrentSlideIndex(i) {
-  set({ currentSlideIndex: i });
+  set({ currentSlideIndex: i }, { persist: false });
+  schedulePersist();
 }
 
 export function updateSlideScript(n, script) {
@@ -200,17 +263,28 @@ export function hasScript() {
   return state.scriptSlides.length > 0;
 }
 
+/** Prefer compact visual for rail; fall back to display / api */
+export function slideThumbSrc(slide) {
+  if (!slide) return "";
+  return slide.imageThumb || slide.imageApi || slide.imageDisplay || "";
+}
+
+export function slideDisplaySrc(slide) {
+  if (!slide) return "";
+  return slide.imageDisplay || slide.imageThumb || slide.imageApi || "";
+}
+
 export function slidesForApi() {
-  // Cap image attachments — full-deck JPEGs make Gemini hang / appear to "write forever"
-  const MAX_IMAGES = 8;
+  // Lean vision attachments — fewer / smaller images = faster Gemini turnaround
+  const MAX_IMAGES = 4;
   let imagesAttached = 0;
   return state.slides.map((s) => {
     const words = String(s.text || "")
       .trim()
       .split(/\s+/)
       .filter(Boolean).length;
-    const payload = { n: s.n, text: s.text };
-    if (words < 15 && s.imageApi && imagesAttached < MAX_IMAGES) {
+    const payload = { n: s.n, text: String(s.text || "").slice(0, 1200) };
+    if (words < 8 && s.imageApi && imagesAttached < MAX_IMAGES) {
       payload.image = s.imageApi;
       imagesAttached += 1;
     }
@@ -251,4 +325,13 @@ export function navigateSafely(url, { replace = false } = {}) {
   markSafeNavigation();
   if (replace) window.location.replace(url);
   else window.location.href = url;
+}
+
+/** Force a slim persist now (e.g. before leaving the page intentionally) */
+export function flushPersist() {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  persistNow();
 }

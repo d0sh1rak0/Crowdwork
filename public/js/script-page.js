@@ -7,12 +7,15 @@ import {
   getState,
   hasDeck,
   hasScript,
+  flushPersist,
   navigateSafely,
   resetSlideToOriginal,
   setCurrentSlideIndex,
   setGenerating,
   setScriptSlides,
   setTone,
+  slideDisplaySrc,
+  slideThumbSrc,
   slidesForApi,
   totalEstimatedSeconds,
   updateSlideFromRegen,
@@ -31,6 +34,8 @@ import {
   playbackRateForWpm,
 } from "./services/paceConfig.js";
 import { autoGrow, formatTime, toast } from "./utils.js";
+
+const PENDING_GENERATE_KEY = "crowdwork-pending-generate";
 
 const loading = document.getElementById("loading");
 const empty = document.getElementById("empty");
@@ -98,11 +103,12 @@ function abortGenerationPipeline() {
 /** Escape hatch — cancel retries and return to upload canvas */
 function escapeToUpload(bannerMessage) {
   abortGenerationPipeline();
-  sessionStorage.removeItem("crowdwork-pending-generate");
+  sessionStorage.removeItem(PENDING_GENERATE_KEY);
   setGenerating(false);
   if (bannerMessage) {
     setUploadBanner({ message: bannerMessage, tone: "error" });
   }
+  flushPersist();
   navigateSafely("/");
 }
 
@@ -123,7 +129,7 @@ function routeHardGenerationFailure(err, { retryFn = null } = {}) {
   abortGenerationPipeline();
   rateLimitDash?.hide();
   setGenerating(false);
-  sessionStorage.removeItem("crowdwork-pending-generate");
+  sessionStorage.removeItem(PENDING_GENERATE_KEY);
 
   const message =
     err instanceof Error
@@ -192,7 +198,9 @@ async function runGenerateWithRecovery(payload) {
         });
       },
     });
+    // Cut loading / rate-limit overlays the instant the payload lands
     rateLimitDash?.hide();
+    loading.classList.add("hidden");
     return data;
   } catch (err) {
     if (err?.name !== "AbortError") {
@@ -208,22 +216,117 @@ async function runGenerateWithRecovery(payload) {
   }
 }
 
+/**
+ * Paint script text onto the studio canvas immediately — before rail images / persist.
+ * Target: visible within 1–2s of payload arrival.
+ */
+function paintScriptImmediate() {
+  const state = getState();
+  if (!hasScript()) return;
+  rateLimitDash?.hide();
+  showStudio();
+
+  const current = state.scriptSlides[state.currentSlideIndex] || state.scriptSlides[0];
+  if (!current) return;
+  const deckSlide = state.slides.find((s) => s.n === current.n);
+
+  deckTitle.textContent = state.deckTitle;
+  timeEstimate.textContent = `≈ ${formatTime(totalEstimatedSeconds())} / ${formatTime(state.setup.targetMinutes * 60)}`;
+  scriptArea.value = current.script || "";
+  tip.textContent = current.tip || "";
+  mobileMeta.textContent = `Slide ${current.n} · ${current.seconds}s`;
+  if (deckSlide) {
+    slideImg.src = slideDisplaySrc(deckSlide);
+    slideImg.alt = `Slide ${current.n}`;
+  }
+  btnReset.disabled =
+    current.script === current.originalScript && current.tip === current.originalTip;
+  autoGrow(scriptArea);
+  document.getElementById("prev-slide").disabled = state.currentSlideIndex === 0;
+  document.getElementById("next-slide").disabled =
+    state.currentSlideIndex >= state.scriptSlides.length - 1;
+}
+
+/** Build the slide rail with compact thumbs via a DocumentFragment (non-blocking vs full-res). */
+function renderRailLazy() {
+  const state = getState();
+  if (!hasScript()) return;
+  const frag = document.createDocumentFragment();
+  state.scriptSlides.forEach((s, i) => {
+    const thumb = state.slides.find((d) => d.n === s.n);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `rail-item${i === state.currentSlideIndex ? " active" : ""}`;
+    const img = document.createElement("img");
+    img.alt = "";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.src = slideThumbSrc(thumb);
+    const meta = document.createElement("div");
+    meta.className = "rail-meta";
+    meta.innerHTML = `<div>${s.n}</div><div class="muted">${s.seconds}s</div>`;
+    btn.appendChild(img);
+    btn.appendChild(meta);
+    btn.addEventListener("click", () => {
+      setCurrentSlideIndex(i);
+      render();
+    });
+    frag.appendChild(btn);
+  });
+  rail.replaceChildren(frag);
+}
+
+function resolveGeneratePayload(raw) {
+  const meta = JSON.parse(raw);
+  // Lean pending flag: rebuild slides from the live store (avoids multi-MB parse)
+  if (meta.useStoreSlides || !Array.isArray(meta.slides)) {
+    return {
+      deckTitle: meta.deckTitle || getState().deckTitle,
+      purpose: meta.purpose || getPurposeString(),
+      audience: meta.audience,
+      notes: meta.notes,
+      tone: meta.tone || getState().setup.tone,
+      targetMinutes: meta.targetMinutes || getState().setup.targetMinutes,
+      language: meta.language || getResolvedLanguage(),
+      slides: slidesForApi(),
+    };
+  }
+  return meta;
+}
+
 async function runPendingGenerate() {
-  const raw = sessionStorage.getItem("crowdwork-pending-generate");
+  const raw = sessionStorage.getItem(PENDING_GENERATE_KEY);
   // Orphaned flag from a refresh mid-request — don't spin forever
   if (!raw) {
     if (getState().isGenerating && !hasScript()) setGenerating(false);
     return false;
   }
 
+  console.time("[Script Pipeline Performance]");
   try {
-    const payload = JSON.parse(raw);
+    const payload = resolveGeneratePayload(raw);
     const data = await runGenerateWithRecovery(payload);
     // Only clear pending after a successful write
-    sessionStorage.removeItem("crowdwork-pending-generate");
-    setScriptSlides(mapScripts(data.slides));
+    sessionStorage.removeItem(PENDING_GENERATE_KEY);
+
+    // Memory-first apply — do NOT block paint on sessionStorage stringify
+    const mapped = mapScripts(data.slides);
+    setScriptSlides(mapped, { persist: false });
+    paintScriptImmediate();
+
+    // Let the browser paint the script before rail decode / idle persist
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    renderRailLazy();
+    flushPersist();
+
+    console.timeEnd("[Script Pipeline Performance]");
     return true;
   } catch (err) {
+    try {
+      console.timeEnd("[Script Pipeline Performance]");
+    } catch {
+      /* timer may be missing if thrown before start */
+    }
     if (err?.name === "AbortError") {
       setGenerating(false);
       return false;
@@ -276,43 +379,8 @@ function render() {
     return;
   }
 
-  showStudio();
-  const current = state.scriptSlides[state.currentSlideIndex];
-  const deckSlide = state.slides.find((s) => s.n === current.n);
-  deckTitle.textContent = state.deckTitle;
-  timeEstimate.textContent = `≈ ${formatTime(totalEstimatedSeconds())} / ${formatTime(state.setup.targetMinutes * 60)}`;
-
-  rail.innerHTML = "";
-  state.scriptSlides.forEach((s, i) => {
-    const thumb = state.slides.find((d) => d.n === s.n);
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `rail-item${i === state.currentSlideIndex ? " active" : ""}`;
-    btn.innerHTML = `
-      <img src="${thumb?.imageDisplay || ""}" alt="" />
-      <div class="rail-meta">
-        <div>${s.n}</div>
-        <div class="muted">${s.seconds}s</div>
-      </div>`;
-    btn.addEventListener("click", () => {
-      setCurrentSlideIndex(i);
-      render();
-    });
-    rail.appendChild(btn);
-  });
-
-  slideImg.src = deckSlide?.imageDisplay || "";
-  slideImg.alt = `Slide ${current.n}`;
-  scriptArea.value = current.script;
-  tip.textContent = current.tip || "";
-  mobileMeta.textContent = `Slide ${current.n} · ${current.seconds}s`;
-  btnReset.disabled =
-    current.script === current.originalScript && current.tip === current.originalTip;
-  autoGrow(scriptArea);
-
-  document.getElementById("prev-slide").disabled = state.currentSlideIndex === 0;
-  document.getElementById("next-slide").disabled =
-    state.currentSlideIndex >= state.scriptSlides.length - 1;
+  paintScriptImmediate();
+  renderRailLazy();
 }
 
 scriptArea.addEventListener("input", () => {
@@ -356,6 +424,7 @@ document.getElementById("regen-apply").addEventListener("click", async () => {
     const neighbors = state.scriptSlides
       .filter((s) => Math.abs(s.n - current.n) === 1)
       .map((s) => ({ n: s.n, script: s.script }));
+    console.time("[Script Pipeline Performance]");
     const data = await runGenerateWithRecovery({
       deckTitle: state.deckTitle,
       purpose: getPurposeString(),
@@ -371,11 +440,17 @@ document.getElementById("regen-apply").addEventListener("click", async () => {
     const updated = data.slides.find((s) => s.n === current.n) || data.slides[0];
     updateSlideFromRegen(current.n, updated);
     setGenerating(false);
+    paintScriptImmediate();
     regenRow.classList.remove("open");
     regenInput.value = "";
     toast(`Slide ${current.n} rewritten.`);
-    render();
+    console.timeEnd("[Script Pipeline Performance]");
   } catch (err) {
+    try {
+      console.timeEnd("[Script Pipeline Performance]");
+    } catch {
+      /* ignore */
+    }
     if (err?.name === "AbortError") return;
     routeHardGenerationFailure(err, {
       retryFn: () => document.getElementById("regen-apply").click(),
@@ -656,6 +731,7 @@ document.getElementById("tone-cancel").addEventListener("click", () => {
 async function regenerateAll(tone) {
   setTone(tone);
   updateSetup({ tone });
+  console.time("[Script Pipeline Performance]");
   try {
     const state = getState();
     const data = await runGenerateWithRecovery({
@@ -668,11 +744,21 @@ async function regenerateAll(tone) {
       language: getResolvedLanguage(),
       slides: slidesForApi(),
     });
-    setScriptSlides(mapScripts(data.slides));
+    const mapped = mapScripts(data.slides);
+    setScriptSlides(mapped, { persist: false });
+    paintScriptImmediate();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    renderRailLazy();
+    flushPersist();
     toneBar.classList.remove("open");
     toast("Full script rewritten.");
-    render();
+    console.timeEnd("[Script Pipeline Performance]");
   } catch (err) {
+    try {
+      console.timeEnd("[Script Pipeline Performance]");
+    } catch {
+      /* ignore */
+    }
     if (err?.name === "AbortError") return;
     routeHardGenerationFailure(err, {
       retryFn: () => regenerateAll(tone),
@@ -729,7 +815,7 @@ document.getElementById("btn-speak").addEventListener("click", async () => {
 });
 
 (async function init() {
-  if (!hasDeck() && !sessionStorage.getItem("crowdwork-pending-generate")) {
+  if (!hasDeck() && !sessionStorage.getItem(PENDING_GENERATE_KEY)) {
     navigateSafely("/", { replace: true });
     return;
   }
@@ -737,15 +823,18 @@ document.getElementById("btn-speak").addEventListener("click", async () => {
   // Clear stuck "Writing…" if a previous tab closed mid-flight
   if (
     getState().isGenerating &&
-    !sessionStorage.getItem("crowdwork-pending-generate") &&
+    !sessionStorage.getItem(PENDING_GENERATE_KEY) &&
     !hasScript()
   ) {
     setGenerating(false);
   }
 
-  if (sessionStorage.getItem("crowdwork-pending-generate")) {
+  if (sessionStorage.getItem(PENDING_GENERATE_KEY)) {
     showLoading();
     await runPendingGenerate();
+    // Script already painted inside runPendingGenerate — skip full re-render stall
+    if (!hasScript()) render();
+    return;
   }
   render();
 })();

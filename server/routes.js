@@ -52,24 +52,20 @@ ${batchLabel}
 Full deck outline (for coherent time allocation):
 ${buildOutline(body.slides)}
 
-Budget: ~${Math.max(1, Math.round((body.targetMinutes * 60) / Math.max(1, body.slides.length)))}s average per slide.
-Keep each \`script\` short enough to speak in its \`seconds\` (~2.5 words/sec). Stop after the last slide in this batch.
+Budget: ~${Math.max(1, Math.round((body.targetMinutes * 60) / Math.max(1, body.slides.length)))}s avg/slide.
+Each script: 2–4 spoken sentences max. Stop after this batch.
 
-Return JSON:
-{
-  "slides": [
-    { "n": 1, "script": "spoken text", "seconds": 45, "tip": "delivery note" }
-  ]
-}
-Only include slides in this batch. No extra keys, no trailing commentary.`,
+Return compact JSON only:
+{"slides":[{"n":1,"script":"...","seconds":45,"tip":"..."}]}
+Batch slides only. No extra keys.`,
     },
   ];
   for (const slide of batchSlides) parts.push(...slideParts(slide));
   const parsed = await generateJson(model, parts, {
-    temperature: 0.7,
-    // Cap tokens so the model cannot ramble forever on large decks
-    maxOutputTokens: Math.min(6000, 900 + batchSlides.length * 350),
-    timeoutMs: Math.min(90000, 30000 + batchSlides.length * 4000),
+    temperature: 0.55,
+    // Tight token budget — short spoken lines, faster streams
+    maxOutputTokens: Math.min(4000, 600 + batchSlides.length * 220),
+    timeoutMs: Math.min(75000, 25000 + batchSlides.length * 3000),
   });
   if (!parsed.slides || !Array.isArray(parsed.slides)) {
     throw new Error("Missing slides array");
@@ -136,23 +132,31 @@ export function createApiRouter() {
       let all;
       if (body.regenerate) {
         all = await regenerateOne(body);
-      } else if (body.slides.length <= 18) {
+      } else if (body.slides.length <= 14) {
         all = await generateBatch(
           body,
           body.slides,
           `Write the full script for all ${body.slides.length} slides.`
         );
       } else {
-        all = [];
-        const BATCH = 12;
+        // Parallel batches (concurrency 2) — large decks no longer wait serially
+        const BATCH = 10;
+        const jobs = [];
         for (let i = 0; i < body.slides.length; i += BATCH) {
           const batch = body.slides.slice(i, i + BATCH);
-          const result = await generateBatch(
-            body,
-            batch,
-            `Write scripts for slides ${batch[0].n}–${batch[batch.length - 1].n}. Keep total time coherent with the ${body.targetMinutes}-minute target across the whole deck.`
+          jobs.push(
+            generateBatch(
+              body,
+              batch,
+              `Write scripts for slides ${batch[0].n}–${batch[batch.length - 1].n}. Keep total time coherent with the ${body.targetMinutes}-minute target across the whole deck.`
+            )
           );
-          all = all.concat(result);
+        }
+        const CONCURRENCY = 2;
+        all = [];
+        for (let i = 0; i < jobs.length; i += CONCURRENCY) {
+          const chunk = await Promise.all(jobs.slice(i, i + CONCURRENCY));
+          for (const part of chunk) all = all.concat(part);
         }
       }
 

@@ -316,7 +316,10 @@ async function writeScript() {
     return;
   }
 
+  // Lean handoff — rebuild slides from the live store on the script page
+  // (avoids multi-MB base64 stringify into sessionStorage)
   const payload = {
+    useStoreSlides: true,
     deckTitle: state.deckTitle,
     purpose: getPurposeString(),
     audience: audience.value.trim() || undefined,
@@ -324,11 +327,13 @@ async function writeScript() {
     tone: setup.tone,
     targetMinutes: setup.targetMinutes,
     language: getResolvedLanguage(),
-    slides: slidesForApi(),
   };
 
   try {
-    sessionStorage.setItem("crowdwork-pending-generate", JSON.stringify(payload));
+    sessionStorage.setItem(
+      "crowdwork-pending-generate",
+      JSON.stringify(payload)
+    );
     setGenerating(true);
     writeBtn.disabled = true;
     writeBtn.textContent = "Writing your script…";

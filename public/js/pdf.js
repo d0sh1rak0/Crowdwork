@@ -1,7 +1,8 @@
 const MAX_BYTES = 20 * 1024 * 1024;
 const MAX_PAGES = 40;
-const DISPLAY_SCALE = 1.75;
-const API_MAX_WIDTH = 800;
+const DISPLAY_SCALE = 1.5;
+const API_MAX_WIDTH = 512;
+const THUMB_MAX_WIDTH = 180;
 
 function collapseWhitespace(text) {
   return text.replace(/\s+/g, " ").trim();
@@ -72,14 +73,15 @@ export async function processPdf(file, onProgress) {
 
     await page.render({ canvasContext: ctx, viewport }).promise;
 
-    const imageDisplay = canvasToJpeg(canvas, 0.8);
-    const imageApi = canvasToJpeg(canvas, 0.7, API_MAX_WIDTH);
+    const imageDisplay = canvasToJpeg(canvas, 0.72);
+    const imageApi = canvasToJpeg(canvas, 0.55, API_MAX_WIDTH);
+    const imageThumb = canvasToJpeg(canvas, 0.55, THUMB_MAX_WIDTH);
     const textContent = await page.getTextContent();
     const text = collapseWhitespace(
       textContent.items.map((item) => ("str" in item ? item.str : "")).join(" ")
     );
 
-    const slide = { n: i, text, imageDisplay, imageApi };
+    const slide = { n: i, text, imageDisplay, imageApi, imageThumb };
     slides.push(slide);
     onProgress?.({ current: i, total: doc.numPages, slide });
   }

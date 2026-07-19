@@ -45,18 +45,30 @@ export async function generateScript(payload, options = {}) {
   // Large decks + slide images can take a while; hard-cap so UI never spins forever
   const slideCount = payload?.slides?.length || 1;
   const timeoutMs = Math.min(180000, 45000 + slideCount * 8000);
-  const res = await fetchWithTimeout(
-    "/api/generate-script",
-    {
-      method: "POST",
-      headers: NetworkClient.getJsonHeaders(),
-      body: JSON.stringify(payload),
-      signal: options.signal,
-    },
-    timeoutMs
-  );
-  if (!res.ok) await throwFromResponse(res);
-  return res.json();
+  console.time("[Script Pipeline Performance]/fetch");
+  try {
+    const res = await fetchWithTimeout(
+      "/api/generate-script",
+      {
+        method: "POST",
+        headers: NetworkClient.getJsonHeaders(),
+        body: JSON.stringify(payload),
+        signal: options.signal,
+      },
+      timeoutMs
+    );
+    if (!res.ok) await throwFromResponse(res);
+    const data = await res.json();
+    console.timeEnd("[Script Pipeline Performance]/fetch");
+    return data;
+  } catch (err) {
+    try {
+      console.timeEnd("[Script Pipeline Performance]/fetch");
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
 }
 
 export async function fetchFeedback(payload) {
