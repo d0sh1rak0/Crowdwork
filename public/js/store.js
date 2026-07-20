@@ -12,6 +12,8 @@ const defaultSetup = () => ({
   audience: "",
   notes: "",
   /** Center of the healthy / steady WPM band (set in pre-pitch tuner) */
+  /** Pitch campaign level (1–3 + Final Boss) */
+  pitchLevel: 2,
   paceTargetWpm: DEFAULT_PACE_TARGET_WPM,
   /** Last AI recommendation shown in the pace tuner */
   paceRecommendedWpm: null,

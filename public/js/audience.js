@@ -105,8 +105,17 @@ export function createAudienceEngine({
   reactionHost,
   houseEl,
   memberCount = 12,
+  levelConfig = null,
 }) {
-  let attention = 78;
+  const level = levelConfig || {
+    startAttention: 78,
+    pauseDecay: 0.25,
+    rushPenalty: 8,
+    fillerPenalty: 9,
+    steadyBonus: 4,
+    difficultyMult: 1,
+  };
+  let attention = level.startAttention;
   let silenceMs = 0;
   let speakingMsWindow = 0;
   let lastReactionAt = 0;
@@ -397,8 +406,8 @@ export function createAudienceEngine({
       attention = clamp(attention - 4);
       pushReaction("pause", pick(["…", "waiting", "breath held", "go on?"]));
     } else {
-      // ~2.5 attention pts / sec after the precision threshold
-      attention = clamp(attention - 0.25);
+      // Scaled pause decay by pitch level difficulty
+      attention = clamp(attention - level.pauseDecay);
       if (pauseMs >= 2800 && pauseMs < 3000 && attention < 55) {
         triggerGiggleWave(false);
       }
@@ -425,7 +434,7 @@ export function createAudienceEngine({
 
   function onFillerHit(word) {
     events.fillers += 1;
-    attention = clamp(attention - 9);
+    attention = clamp(attention - level.fillerPenalty);
     pushReaction("filler", word ? `“${word}”` : undefined);
     // Negative crowd shift: look away / cross arms
     members.forEach((m, i) => {
@@ -440,9 +449,9 @@ export function createAudienceEngine({
     renderAttention();
   }
 
-  /** High-velocity panic > 160 WPM */
+  /** High-velocity panic > rush threshold */
   function onRushed(wpm) {
-    attention = clamp(attention - 8);
+    attention = clamp(attention - level.rushPenalty);
     if (houseEl) houseEl.dataset.delivery = "rushed";
     members.forEach((m) => {
       m.el.classList.add("is-lean-back");
@@ -475,9 +484,9 @@ export function createAudienceEngine({
     renderAttention();
   }
 
-  /** Sustained 120–150 WPM across a 5s block */
+  /** Sustained healthy WPM across a sampling block */
   function onSteadyPacing(wpm) {
-    attention = clamp(attention + 4);
+    attention = clamp(attention + level.steadyBonus);
     if (houseEl) houseEl.dataset.delivery = "steady";
     members.forEach((m) => {
       m.el.classList.remove(
@@ -552,7 +561,7 @@ export function createAudienceEngine({
   }
 
   function reset() {
-    attention = 78;
+    attention = level.startAttention;
     silenceMs = 0;
     speakingMsWindow = 0;
     pauseLatched = false;

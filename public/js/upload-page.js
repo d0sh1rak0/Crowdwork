@@ -4,6 +4,7 @@ import ScriptParserService, {
   parseScriptToSlides,
   slidesFromParsedScript,
 } from "./services/ScriptParserService.js";
+import { PITCH_LEVELS, getPitchLevel } from "./services/pitchLevels.js";
 import {
   getPurposeString,
   getResolvedLanguage,
@@ -41,6 +42,7 @@ const scriptPaste = document.getElementById("script-paste");
 const parseBtn = document.getElementById("parse-script-btn");
 const parseMeta = document.getElementById("parse-meta");
 const parsedStack = document.getElementById("parsed-stack");
+const levelsEl = document.getElementById("pitch-levels");
 
 const DURATIONS = [3, 5, 7, 10, 15, 20];
 const TONES = [
@@ -90,6 +92,38 @@ function showContextBanner(message, tone = "error") {
 function hydrateContextBanner() {
   const banner = consumeUploadBanner();
   if (banner) showContextBanner(banner.message, banner.tone);
+}
+
+function renderLevels() {
+  if (!levelsEl) return;
+  levelsEl.innerHTML = "";
+  const activeId = Number(setup.pitchLevel) || 2;
+  PITCH_LEVELS.forEach((level) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `level-card${activeId === level.id ? " active" : ""}${
+      level.isBoss ? " is-boss" : ""
+    }`;
+    btn.innerHTML = `
+      <span class="level-badge">${level.badge}</span>
+      <span class="level-name">${level.name}</span>
+      <span class="level-blurb">${level.blurb}</span>
+      <span class="level-meter" aria-hidden="true">
+        <i style="--fill:${Math.min(100, level.difficultyMult * 55)}%"></i>
+      </span>
+    `;
+    btn.addEventListener("click", () => {
+      setup.pitchLevel = level.id;
+      updateSetup({ pitchLevel: level.id });
+      renderLevels();
+      const label = getPitchLevel(level.id).name;
+      writeBtn.textContent =
+        materialMode === "script"
+          ? `Start ${label} pitch`
+          : `Enter ${label} — write my script`;
+    });
+    levelsEl.appendChild(btn);
+  });
 }
 
 function renderChips() {
@@ -300,6 +334,7 @@ async function writeScript() {
     notes: notes.value,
     targetMinutes: setup.targetMinutes,
     tone: setup.tone,
+    pitchLevel: setup.pitchLevel || 2,
   });
 
   // Pasted-script path: already have spoken lines — go pitch (via script studio)
@@ -401,4 +436,5 @@ if (existing.slides.length) {
 }
 
 hydrateContextBanner();
+renderLevels();
 renderChips();

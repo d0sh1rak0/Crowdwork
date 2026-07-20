@@ -11,6 +11,7 @@ import pacingTelemetry from "./services/PacingTelemetry.js";
 import sessionTimerService from "./services/SessionTimerService.js";
 import { shouldAutoAdvanceSlide } from "./services/SlideAdvanceService.js";
 import vocalMetricsService from "./services/VocalMetricsService.js";
+import { getPitchLevel } from "./services/pitchLevels.js";
 import NetworkClient from "./utilities/NetworkClient.js";
 import {
   getPurposeString,
@@ -83,6 +84,7 @@ function showControls() {
 }
 
 function initAudience() {
+  const level = getPitchLevel(state().setup?.pitchLevel);
   audience = createAudienceEngine({
     attentionFill: document.getElementById("attention-fill"),
     attentionValue: document.getElementById("attention-value"),
@@ -90,8 +92,14 @@ function initAudience() {
     audienceRow: document.getElementById("audience-row"),
     reactionHost: document.getElementById("reaction-host"),
     houseEl: document.getElementById("house"),
-    memberCount: 12,
+    memberCount: level.isBoss ? 14 : 12,
+    levelConfig: level,
   });
+  const badge = document.getElementById("pitch-level-badge");
+  if (badge) {
+    badge.textContent = level.isBoss ? "FINAL BOSS" : level.badge;
+    badge.dataset.boss = level.isBoss ? "1" : "0";
+  }
 }
 
 /* Filler hits are handled by VocalMetricsService → audience.onFillerHit */

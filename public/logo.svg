@@ -1,4 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28" fill="none">
-  <circle cx="14" cy="14" r="13" fill="#191B1F" stroke="#F2A33C" stroke-width="2"/>
-  <circle cx="14" cy="14" r="5" fill="#F2A33C"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none" role="img" aria-label="CrowdWork AI">
+  <rect width="512" height="512" fill="#000000"/>
+  <circle cx="256" cy="256" r="210" stroke="#E6D19B" stroke-width="10" fill="none"/>
+  <!-- spotlight housing -->
+  <path d="M232 78h48l18 28H214l18-28z" fill="#E6D19B"/>
+  <rect x="244" y="106" width="24" height="22" rx="3" fill="#E6D19B"/>
+  <!-- light cone -->
+  <path d="M256 128 L168 360 L344 360 Z" fill="#E6D19B" opacity="0.18"/>
+  <path d="M256 128 L188 360 L324 360 Z" fill="#E6D19B" opacity="0.12"/>
+  <!-- light pool -->
+  <ellipse cx="256" cy="368" rx="92" ry="28" fill="#E6D19B" opacity="0.35"/>
+  <ellipse cx="256" cy="368" rx="70" ry="18" fill="#E6D19B" opacity="0.55"/>
+  <!-- microphone -->
+  <rect x="232" y="188" width="48" height="88" rx="24" fill="#E6D19B"/>
+  <path d="M214 248v12c0 24 18 44 42 44s42-20 42-44v-12" stroke="#E6D19B" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <line x1="256" y1="304" x2="256" y2="336" stroke="#E6D19B" stroke-width="8" stroke-linecap="round"/>
+  <line x1="232" y1="336" x2="280" y2="336" stroke="#E6D19B" stroke-width="8" stroke-linecap="round"/>
 </svg>

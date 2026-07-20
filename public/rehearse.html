@@ -4,17 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <base href="/" />
-    <title>Pitch — Crowdwork</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <title>Pitch — CrowdWork AI</title>
     <link rel="stylesheet" href="/css/app.css" />
     <link rel="icon" href="/logo.svg" />
   </head>
-  <body>
+  <body class="game-skin">
     <div id="secure-context-banner" class="secure-context-banner" role="alert" hidden></div>
     <div id="stage-root" class="stage">
       <div id="countdown-view">
@@ -31,6 +25,7 @@
       </div>
 
       <div id="run-view" class="run-view hidden">
+        <div id="pitch-level-badge" class="pitch-level-badge" data-boss="0">LVL 2</div>
         <div id="mic-banner" class="mic-banner hidden">
           Pitching without mic / camera — timers only
         </div>
@@ -111,8 +106,11 @@
     <div id="report-root" class="hidden">
       <header class="site-header">
         <a class="brand" href="/">
-          <img src="/logo.svg" alt="" width="28" height="28" />
-          Crowdwork
+          <img src="/logo.svg" alt="CrowdWork AI" width="36" height="36" />
+          <span class="brand-text">
+            <span class="brand-name">CrowdWork</span>
+            <span class="brand-ai">AI</span>
+          </span>
         </a>
       </header>
       <main class="report">
