@@ -94,13 +94,14 @@ export async function fetchObjections(payload) {
 /**
  * @param {Blob|FormData} blobOrForm
  * @param {string} [language]
- * @param {{ mimeType?: string, filename?: string }} [meta]
+ * @param {{ mimeType?: string, filename?: string, prompt?: string }} [meta]
  */
 export async function transcribeAudio(blobOrForm, language, meta = {}) {
   let form;
   if (blobOrForm instanceof FormData) {
     form = blobOrForm;
     if (!form.has("language") && language) form.append("language", language);
+    if (meta.prompt && !form.has("prompt")) form.append("prompt", meta.prompt);
   } else {
     const mimeType = meta.mimeType || blobOrForm?.type || "audio/webm";
     const filename = meta.filename || "recording.webm";
@@ -112,6 +113,7 @@ export async function transcribeAudio(blobOrForm, language, meta = {}) {
     form.append("file", blobOrForm, filename);
     form.append("language", language || "en");
     form.append("mimeType", mimeType.split(";")[0].trim());
+    if (meta.prompt) form.append("prompt", String(meta.prompt).slice(0, 800));
   }
 
   const res = await NetworkClient.fetch("/api/transcribe", {

@@ -21,8 +21,8 @@ const MIME_CANDIDATES = [
   "audio/wav",
 ];
 
-// 2.5s whole-file slices — 1s MediaRecorder WebMs often have ~0s duration for Whisper
-const SLICE_MS = 2500;
+// 3.5s whole-file slices — longer windows improve Whisper word accuracy
+const SLICE_MS = 3500;
 
 function extensionForMime(mimeType) {
   const base = String(mimeType || "")
@@ -88,6 +88,8 @@ class SessionCoordinator {
       onSpeechResume: null,
       onError: null,
       getLanguage: () => "en",
+      /** Optional: () => string — Whisper vocabulary / slide prompt */
+      getWhisperPrompt: () => "",
       shouldRun: () => true,
       /** Optional: () => boolean — mic visualizer sees energy */
       hasMicSignal: () => false,
@@ -342,11 +344,15 @@ class SessionCoordinator {
       (typeof this._handlers.getLanguage === "function"
         ? this._handlers.getLanguage()
         : "en") || "en";
+    const prompt =
+      typeof this._handlers.getWhisperPrompt === "function"
+        ? String(this._handlers.getWhisperPrompt() || "").trim()
+        : "";
 
     const text = await audioTranscriptionService.transcribeAudioPayload(
       blob,
       language,
-      { mimeType, filename: `recording.${ext}` }
+      { mimeType, filename: `recording.${ext}`, prompt }
     );
 
     const clean = text && text.trim() ? text.trim() : "";

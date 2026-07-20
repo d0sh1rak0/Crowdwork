@@ -14,11 +14,112 @@ import {
   hasGroqLlm,
   regenerateOneViaGroq,
 } from "./groqScript.js";
+import { buildMockHeckle } from "./heckleFallback.js";
 import { toWhisperWav } from "./audioConvert.js";
 import {
   inspectRateLimitError,
   sendRateLimitResponse,
 } from "./rateLimit.js";
+
+/** Extract last N spoken words for heckle mocking */
+function recentSpokenPhrase(text, maxWords = 8) {
+  const words = String(text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "";
+  return words.slice(-Math.min(maxWords, words.length)).join(" ");
+}
+
+/**
+ * OpenAI TTS for heckles — prefer expressive gpt-4o-mini-tts over robotic tts-1.
+ */
+async function synthesizeHeckleAudio(heckleLine, language) {
+  if (!heckleLine || !process.env.OPENAI_API_KEY) return null;
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const voice =
+      language === "ru"
+        ? process.env.OPENAI_HECKLE_VOICE_RU || "nova"
+        : process.env.OPENAI_HECKLE_VOICE || "echo";
+    const input = heckleLine.slice(0, 220);
+    const primary = {
+      model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
+      voice,
+      input,
+      response_format: "mp3",
+      // Style cue — supported on gpt-4o-mini-tts
+      instructions:
+        "Speak like a skeptical live investor interrupting from the audience. Natural, slightly sarcastic, conversational — not a calm announcer. Short punchy delivery.",
+    };
+    let speech;
+    try {
+      speech = await openai.audio.speech.create(primary);
+    } catch {
+      speech = await openai.audio.speech.create({
+        model: "tts-1-hd",
+        voice: language === "ru" ? "nova" : "echo",
+        input,
+        response_format: "mp3",
+        speed: 1.08,
+      });
+    }
+    const buf = Buffer.from(await speech.arrayBuffer());
+    return buf.toString("base64");
+  } catch (ttsErr) {
+    console.warn("[heckle tts]", ttsErr.message || ttsErr);
+    return null;
+  }
+}
+
+async function generateHeckleViaGroq({
+  silenceSeconds,
+  langLabel,
+  language,
+  slideScript,
+  transcript,
+  recentWords,
+  fillerTotal,
+  deliveryState,
+  wpm,
+}) {
+  const key = process.env.GROQ_LLM_API_KEY;
+  if (!key) throw new Error("GROQ_LLM_API_KEY is not set.");
+  const groq = new Groq({ apiKey: key });
+  const echo = recentWords || recentSpokenPhrase(transcript, 8);
+  const completion = await groq.chat.completions.create({
+    model: process.env.GROQ_LLM_MODEL || "llama-3.3-70b-versatile",
+    temperature: 0.75,
+    max_tokens: 220,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a rude-but-fair investor heckling from the audience. Output JSON only. Mock by echoing the speaker's recent words in a bad/sarcastic tone. Never be supportive.",
+      },
+      {
+        role: "user",
+        content: `Presenter silent ${silenceSeconds}s. Language: ${langLabel}.
+Their recent spoken words (MUST twist/echo these): "${echo || "(none)"}"
+Full transcript so far: ${transcript || "(nothing)"}
+Slide script: ${slideScript || "(none)"}
+Fillers=${fillerTotal}, delivery=${deliveryState}, WPM=${wpm || "n/a"}.
+
+Rules for heckleLine:
+- Max 16 words, spoken aloud in ${langLabel}.
+- MUST quote or parody 2–6 of their recent words (or closest idea) in a mocking tone.
+- Example vibe: "Oh, 'scale globally' — with what money?" / "«масштабируемся» — на чьи деньги?"
+- Do NOT invent a generic investor question that ignores what they said.
+
+Return ONLY:
+{"CROWD_STATE":"HECKLE","heckleLine":"...","stageDirection":"crowd snickers"}
+CROWD_STATE HECKLE if silence>=5 else RESTLESS.`,
+      },
+    ],
+  });
+  return parseJsonLoose(completion.choices[0]?.message?.content || "{}");
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -443,18 +544,38 @@ ${deck}`,
           type: whisperMime,
         });
 
-        const result = await groq.audio.transcriptions.create({
+        // Seed Whisper with slide vocabulary so product names / script words stick
+        const promptRaw = String(req.body.prompt || req.body.whisperPrompt || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 800);
+
+        const whisperOpts = {
           file,
           model: process.env.GROQ_WHISPER_MODEL || "whisper-large-v3",
           language: lang,
           response_format: "json",
-        });
+          temperature: 0,
+        };
+        if (promptRaw) whisperOpts.prompt = promptRaw;
+
+        const result = await groq.audio.transcriptions.create(whisperOpts);
 
         const text = result.text || "";
+        const trimmed = String(text).trim();
+        // Drop classic empty-slice hallucinations before they poison live matching
+        const hallucination =
+          /^(?:thanks?\s+for\s+watching|thank\s+you\s+for\s+watching|продолжение\s+следует|субтитры\s+создал|please\s+subscribe|♪+|\[(?:music|silence|blank_audio)\])\.?$/iu.test(
+            trimmed
+          );
+        if (hallucination) {
+          console.warn(`[transcribe] dropped hallucination: ${JSON.stringify(trimmed)}`);
+          return res.json({ text: "" });
+        }
         console.log(
-          `[transcribe] whisper words=${text.trim() ? text.trim().split(/\s+/).length : 0} text=${JSON.stringify(text.slice(0, 80))}`
+          `[transcribe] whisper words=${trimmed ? trimmed.split(/\s+/).length : 0} prompt=${promptRaw ? "yes" : "no"} text=${JSON.stringify(trimmed.slice(0, 80))}`
         );
-        res.json({ text });
+        res.json({ text: trimmed });
       } catch (err) {
         console.error("[transcribe]", err);
         const msg = err instanceof Error ? err.message : "Transcription failed.";
@@ -626,8 +747,8 @@ Return ONLY JSON:
   });
 
   /**
-   * Silence Sentinel critical path — Gemini forces a crowd-state override
-   * and optionally an investor heckle line for TTS.
+   * Silence Sentinel — mock the speaker's recent words in a bad tone (+ TTS).
+   * Gemini first, Groq on quota, local mimic as last resort.
    */
   router.post("/heckle", async (req, res) => {
     try {
@@ -637,72 +758,100 @@ Return ONLY JSON:
       const langLabel = language === "ru" ? "Russian" : "English";
       const slideScript = body.slideScript || "";
       const transcript = body.transcript || "";
+      const recentWords =
+        String(body.recentWords || "").trim() ||
+        recentSpokenPhrase(transcript, 8);
       const fillerTotal = Number(body.fillerTotal) || 0;
       const deliveryState = String(body.deliveryState || "STEADY").toUpperCase();
       const wpm = Number(body.wpm) || 0;
 
-      const model = getGeminiModel(
-        `You simulate a live pitch room. Output a single JSON object. No markdown fences.`
-      );
-
-      const parsed = await generateJson(
-        model,
-        [
-          {
-            text: `The presenter went silent for ${silenceSeconds} seconds during a ${langLabel} pitch.
-Slide script: ${slideScript || "(none)"}
+      let parsed = null;
+      try {
+        const model = getGeminiModel(
+          `You are a rude-but-fair investor heckling from the audience. Output a single JSON object. No markdown fences. Mock by echoing the speaker's recent words.`
+        );
+        parsed = await generateJson(
+          model,
+          [
+            {
+              text: `Presenter silent ${silenceSeconds}s during a ${langLabel} pitch.
+Their recent spoken words (MUST twist/echo these): "${recentWords || "(none)"}"
 Transcript so far: ${transcript || "(nothing)"}
-Live vocal metrics: filler/parasite count=${fillerTotal}, delivery=${deliveryState}, recent WPM=${wpm || "n/a"}.
-If fillers are high or delivery is RUSHED/MONOTONE, make the heckle sharper about pacing/clarity.
+Slide script: ${slideScript || "(none)"}
+Fillers=${fillerTotal}, delivery=${deliveryState}, WPM=${wpm || "n/a"}.
 
-Return ONLY this JSON shape:
-{"CROWD_STATE":"HECKLE","heckleLine":"short investor interruption max 16 words","stageDirection":"crowd sighs"}
-Use CROWD_STATE HECKLE if silence>=5 else RESTLESS. heckleLine in ${langLabel}.`,
-          },
-        ],
-        {
-          systemInstruction: `You simulate a live pitch room. Output a single JSON object. No markdown fences.`,
-          temperature: 0.5,
-          maxOutputTokens: 300,
+Rules for heckleLine:
+- Max 16 words, in ${langLabel}.
+- MUST quote or parody 2–6 of their recent words in a mocking / bad tone.
+- Example: "Oh, 'scale globally' — with what money?"
+- Do NOT invent a generic question that ignores what they said.
+
+Return ONLY:
+{"CROWD_STATE":"HECKLE","heckleLine":"...","stageDirection":"crowd snickers"}
+CROWD_STATE HECKLE if silence>=5 else RESTLESS.`,
+            },
+          ],
+          {
+            systemInstruction: `You are a rude-but-fair investor heckling from the audience. Output JSON only. Mock by echoing their words.`,
+            temperature: 0.7,
+            maxOutputTokens: 300,
+          }
+        );
+      } catch (geminiErr) {
+        const rate = inspectRateLimitError(geminiErr);
+        console.warn(
+          "[heckle] Gemini failed — trying Groq:",
+          rate.message.slice(0, 140)
+        );
+        if (hasGroqLlm()) {
+          parsed = await generateHeckleViaGroq({
+            silenceSeconds,
+            langLabel,
+            language,
+            slideScript,
+            transcript,
+            recentWords,
+            fillerTotal,
+            deliveryState,
+            wpm,
+          });
+        } else {
+          throw geminiErr;
         }
-      );
+      }
 
       const state = String(parsed.CROWD_STATE || parsed.crowd_state || "RESTLESS")
         .toUpperCase()
         .trim();
       const allowed = new Set(["RESTLESS", "HECKLE", "CONFUSED", "EXPECTANT"]);
-      const crowdState = allowed.has(state) ? state : "RESTLESS";
-      const heckleLine = String(parsed.heckleLine || parsed.heckle_line || "").trim();
+      let crowdState = allowed.has(state) ? state : "RESTLESS";
+      if (silenceSeconds >= 5 && crowdState === "RESTLESS") crowdState = "HECKLE";
+
+      let heckleLine = String(parsed.heckleLine || parsed.heckle_line || "").trim();
+      // If the model ignored the speaker, force a local mimic line
+      const echoNeedle = recentWords
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length > 2)
+        .slice(0, 4);
+      const lineLower = heckleLine.toLowerCase();
+      const echoes =
+        !recentWords ||
+        echoNeedle.some((w) => lineLower.includes(w)) ||
+        /["«].+["»]/.test(heckleLine);
+      if (!heckleLine || (recentWords && !echoes)) {
+        heckleLine = buildMockHeckle({
+          transcript: recentWords || transcript,
+          language,
+          slideScript,
+        });
+      }
+
       const stageDirection = String(
-        parsed.stageDirection || parsed.stage_direction || ""
+        parsed.stageDirection || parsed.stage_direction || "crowd snickers"
       ).trim();
 
-      let audioBase64 = null;
-      if (heckleLine && process.env.OPENAI_API_KEY) {
-        try {
-          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-          let speech;
-          try {
-            speech = await openai.audio.speech.create({
-              model: process.env.OPENAI_TTS_MODEL || "tts-1",
-              voice: language === "ru" ? "nova" : "onyx",
-              input: heckleLine.slice(0, 200),
-              response_format: "mp3",
-            });
-          } catch {
-            speech = await openai.audio.speech.create({
-              model: "tts-1",
-              voice: "onyx",
-              input: heckleLine.slice(0, 200),
-              response_format: "mp3",
-            });
-          }
-          const buf = Buffer.from(await speech.arrayBuffer());
-          audioBase64 = buf.toString("base64");
-        } catch (ttsErr) {
-          console.warn("[heckle tts]", ttsErr.message || ttsErr);
-        }
-      }
+      const audioBase64 = await synthesizeHeckleAudio(heckleLine, language);
 
       res.json({
         CROWD_STATE: crowdState,
@@ -712,42 +861,17 @@ Use CROWD_STATE HECKLE if silence>=5 else RESTLESS. heckleLine in ${langLabel}.`
       });
     } catch (err) {
       console.error("[heckle]", err);
-      // Deterministic fallback so silence never freezes the room
-      const ru = req.body?.language === "ru";
-      const lines = ru
-        ? [
-            "Мы вас слушаем — продолжайте.",
-            "Есть вопрос по цифрам — вы с нами?",
-            "Тишина в зале. Что дальше?",
-          ]
-        : [
-            "We're waiting — take us somewhere.",
-            "Quick check — what's the ask?",
-            "Still with us? Hit the next beat.",
-            "Dead air. Where does this go?",
-          ];
-      const heckleLine = lines[Math.floor(Math.random() * lines.length)];
-      let audioBase64 = null;
-      if (process.env.OPENAI_API_KEY) {
-        try {
-          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-          const speech = await openai.audio.speech.create({
-            model: "tts-1",
-            voice: ru ? "nova" : "onyx",
-            input: heckleLine,
-            response_format: "mp3",
-          });
-          audioBase64 = Buffer.from(await speech.arrayBuffer()).toString(
-            "base64"
-          );
-        } catch {
-          /* optional */
-        }
-      }
+      const language = req.body?.language === "ru" ? "ru" : "en";
+      const heckleLine = buildMockHeckle({
+        transcript: req.body?.recentWords || req.body?.transcript,
+        language,
+        slideScript: req.body?.slideScript,
+      });
+      const audioBase64 = await synthesizeHeckleAudio(heckleLine, language);
       res.json({
         CROWD_STATE: Number(req.body?.silenceSeconds) >= 5 ? "HECKLE" : "RESTLESS",
         heckleLine,
-        stageDirection: "crowd sighs and checks watches",
+        stageDirection: "crowd snickers and leans in",
         audioBase64,
         fallback: true,
       });

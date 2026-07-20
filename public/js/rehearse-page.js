@@ -39,6 +39,7 @@ const stageScript = document.getElementById("stage-script");
 const budgetFill = document.getElementById("budget-fill");
 const budgetLabel = document.getElementById("budget-label");
 const controls = document.getElementById("controls");
+const btnNext = document.getElementById("btn-next");
 const camVideo = document.getElementById("cam-video");
 const camFallback = document.getElementById("cam-fallback");
 
@@ -80,7 +81,121 @@ function state() {
 function showControls() {
   controls.classList.remove("hidden");
   if (hideTimer) clearTimeout(hideTimer);
-  hideTimer = setTimeout(() => controls.classList.add("hidden"), 2000);
+  // Secondary controls can fade; Next FAB stays visible always
+  hideTimer = setTimeout(() => controls.classList.add("hidden"), 2800);
+}
+
+/** Whisper bias: distinctive deck terms so product names stick (not full-script echo) */
+function whisperPromptForSlide() {
+  const s = state();
+  const current = s.scriptSlides[index];
+  const script = String(current?.script || "");
+  const title = String(s.deckTitle || "");
+  const recent = String(transcripts[index] || "")
+    .split(/\s+/)
+    .slice(-8)
+    .join(" ");
+  const vocab = `${title} ${script}`
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 4)
+    .filter((w, i, arr) => arr.findIndex((x) => x.toLowerCase() === w.toLowerCase()) === i)
+    .slice(0, 28)
+    .join(", ");
+  return `${vocab}. ${recent}`.replace(/\s+/g, " ").trim().slice(0, 700);
+}
+
+function recentSpokenWords(max = 8) {
+  const words = String(transcripts[index] || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length < 2) {
+    // Fall back to live hearing strip if per-slide buffer is thin
+    const live = liveTranscriptParts.join(" ").trim().split(/\s+/).filter(Boolean);
+    return live.slice(-max).join(" ");
+  }
+  return words.slice(-max).join(" ");
+}
+
+/** Prefer a natural local voice when OpenAI TTS quota is exhausted */
+function pickBrowserHeckleVoice(lang) {
+  if (!("speechSynthesis" in window)) return null;
+  const want = lang === "ru" ? "ru" : "en";
+  const voices = window.speechSynthesis.getVoices?.() || [];
+  const scored = voices
+    .filter((v) => (v.lang || "").toLowerCase().startsWith(want))
+    .map((v) => {
+      const name = `${v.name} ${v.lang}`.toLowerCase();
+      let score = 0;
+      if (/google|premium|neural|enhanced|natural|samantha|daniel|karen|moira|thomas|milena|yuri|irina/.test(name)) {
+        score += 5;
+      }
+      if (/compact|robot|espeak|festival/.test(name)) score -= 4;
+      if (v.localService) score += 1;
+      return { v, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.v || null;
+}
+
+function speakHeckleBrowser(text, language) {
+  return new Promise((resolve) => {
+    if (!("speechSynthesis" in window)) {
+      resolve();
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = language === "ru" ? "ru-RU" : "en-US";
+    u.rate = 1.1;
+    u.pitch = 0.88;
+    u.volume = 1;
+    const voice = pickBrowserHeckleVoice(language);
+    if (voice) u.voice = voice;
+    u.onend = () => resolve();
+    u.onerror = () => resolve();
+    window.speechSynthesis.cancel();
+    // Chrome sometimes needs voices loaded asynchronously
+    if (!voice && window.speechSynthesis.getVoices().length === 0) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        const late = pickBrowserHeckleVoice(language);
+        if (late) u.voice = late;
+        window.speechSynthesis.speak(u);
+      };
+      // Safety timeout if voices never arrive
+      setTimeout(() => window.speechSynthesis.speak(u), 250);
+      return;
+    }
+    window.speechSynthesis.speak(u);
+  });
+}
+
+/** Avoid double-counting near-duplicate Whisper chunks */
+function mergeTranscriptChunk(prev, chunk) {
+  const clean = String(chunk || "").trim();
+  if (!clean) return prev || "";
+  const prior = String(prev || "").trim();
+  if (!prior) return clean;
+  const priorLower = prior.toLowerCase();
+  const cleanLower = clean.toLowerCase();
+  if (priorLower.endsWith(cleanLower) || priorLower.includes(cleanLower)) {
+    return prior;
+  }
+  // Overlap: last N words of prior == first N of chunk
+  const a = prior.split(/\s+/);
+  const b = clean.split(/\s+/);
+  let overlap = 0;
+  const max = Math.min(8, a.length, b.length);
+  for (let n = max; n >= 2; n--) {
+    const tail = a.slice(-n).join(" ").toLowerCase();
+    const head = b.slice(0, n).join(" ").toLowerCase();
+    if (tail === head) {
+      overlap = n;
+      break;
+    }
+  }
+  if (overlap) return `${prior} ${b.slice(overlap).join(" ")}`.trim();
+  return `${prior} ${clean}`.trim();
 }
 
 function initAudience() {
@@ -363,7 +478,7 @@ function processTranscriptChunk(text) {
 
   const slideIndex = index;
   const prev = transcripts[slideIndex] || "";
-  transcripts[slideIndex] = (prev + " " + clean).trim();
+  transcripts[slideIndex] = mergeTranscriptChunk(prev, clean);
   const words = wordCount(clean);
   finalWords += words;
   speakingMs += Math.min(8000, Math.max(400, words * 350));
@@ -374,7 +489,7 @@ function processTranscriptChunk(text) {
   );
   updateMetricHud(metrics || vocalMetricsService.getSnapshot());
 
-  // Intelligent auto-advance: ≥75% of slide budget + script tail match
+  // Intelligent auto-advance: ≥70% of slide budget + script progress/tail match
   maybeAutoAdvanceSlide();
 }
 
@@ -434,6 +549,7 @@ async function fireHeckleStrike(silenceSeconds) {
       language: s.resolvedLanguage,
       slideScript: current?.script || "",
       transcript: transcripts[index] || "",
+      recentWords: recentSpokenWords(8),
       deckTitle: s.deckTitle,
       fillerTotal: live.fillerTotal || 0,
       deliveryState: live.state || "STEADY",
@@ -445,7 +561,7 @@ async function fireHeckleStrike(silenceSeconds) {
       stageDirection: payload.stageDirection,
     });
 
-    // Aggressive mid-sentence investor interruption via TTS
+    // Mid-sentence investor interruption via natural TTS
     if (payload.audioBase64) {
       try {
         if (heckleAudio) {
@@ -459,18 +575,14 @@ async function fireHeckleStrike(silenceSeconds) {
           new Blob([bytes], { type: "audio/mpeg" })
         );
         heckleAudio = new Audio(url);
-        heckleAudio.volume = 0.9;
+        heckleAudio.volume = 0.92;
         await heckleAudio.play();
         heckleAudio.onended = () => URL.revokeObjectURL(url);
       } catch (err) {
         console.warn("heckle audio", err);
       }
     } else if (payload.heckleLine && "speechSynthesis" in window) {
-      const u = new SpeechSynthesisUtterance(payload.heckleLine);
-      u.lang = s.resolvedLanguage === "ru" ? "ru-RU" : "en-US";
-      u.rate = 1.05;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
+      await speakHeckleBrowser(payload.heckleLine, s.resolvedLanguage);
     }
   } catch (err) {
     console.warn("heckle strike", err);
@@ -558,10 +670,15 @@ function updateTimers() {
   budgetFill.style.width = `${Math.min(100, ratio * 100)}%`;
   budgetFill.classList.toggle("warn", ratio >= 0.9 && ratio <= 1);
   budgetFill.classList.toggle("over", ratio > 1);
-  budgetFill.classList.toggle("auto-ready", ratio >= 0.75 && ratio < 0.9);
+  budgetFill.classList.toggle("auto-ready", ratio >= 0.7 && ratio < 0.9);
   budgetLabel.textContent = `Slide ${current.n} · ${formatTime(slideElapsed)} / ${formatTime(current.seconds)}`;
-  // Timing gate for intelligent auto-advance (script-tail checked on STT chunks)
-  if (ratio >= 0.75) maybeAutoAdvanceSlide();
+  // Pulse Next when the slide budget is mostly spent
+  if (btnNext) {
+    const onLast = index >= s.scriptSlides.length - 1;
+    btnNext.classList.toggle("is-ready", ratio >= 0.7 && !onLast);
+  }
+  // Timing gate for intelligent auto-advance (script progress checked on STT chunks)
+  if (ratio >= 0.7) maybeAutoAdvanceSlide();
 }
 
 function renderSlide() {
@@ -571,8 +688,16 @@ function renderSlide() {
   stageImg.src = deck?.imageDisplay || "";
   stageScript.textContent = current.script;
   document.getElementById("btn-prev").disabled = index === 0;
-  document.getElementById("btn-next").textContent =
-    index >= s.scriptSlides.length - 1 ? "Finish pitch" : "Next →";
+  const onLast = index >= s.scriptSlides.length - 1;
+  if (btnNext) {
+    const label = btnNext.querySelector(".stage-next-fab-label");
+    if (label) label.textContent = onLast ? "Finish pitch" : "Next slide";
+    btnNext.classList.toggle("is-finish", onLast);
+    btnNext.setAttribute(
+      "aria-label",
+      onLast ? "Finish pitch" : "Next slide"
+    );
+  }
   updateTimers();
   renderScriptStack();
 }
@@ -594,6 +719,7 @@ function startRecording() {
   sessionCoordinator.start(stream, {
     shouldRun: () => phase === "running" && !paused && !micDenied,
     getLanguage: () => state().resolvedLanguage || "en",
+    getWhisperPrompt: () => whisperPromptForSlide(),
     hasMicSignal: () => Boolean(waveform?.hasSignal?.()),
     onTranscript: (text) => processTranscriptChunk(text),
     onClearSpeech: () => {
@@ -603,6 +729,9 @@ function startRecording() {
     },
     onUnclearSpeech: () => {
       if (phase !== "running" || paused) return;
+      // Mic energy without clean STT — still counts as "not silent" for heckles
+      sessionTimerService.resetSilenceCounter();
+      hesitationApplied = false;
       audience?.onUnclearSpeech();
       setMetricState("Unclear", "warn");
     },

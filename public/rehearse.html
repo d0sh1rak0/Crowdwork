@@ -94,12 +94,23 @@
         </section>
 
         <div id="controls" class="stage-controls">
-          <button id="btn-prev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
-          <button id="btn-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
-          <button id="btn-restart" class="btn btn-ghost btn-sm" type="button">Restart</button>
-          <button id="btn-next" class="btn btn-primary btn-sm" type="button">Next →</button>
-          <button id="btn-exit" class="btn btn-outline btn-sm" type="button">Exit</button>
+          <div class="stage-controls-main">
+            <button id="btn-prev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
+            <button id="btn-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
+            <button id="btn-restart" class="btn btn-ghost btn-sm" type="button">Restart</button>
+            <button id="btn-exit" class="btn btn-outline btn-sm" type="button">Exit</button>
+          </div>
+          <p class="stage-keys font-utility" aria-hidden="true">Space · next slide</p>
         </div>
+        <button
+          id="btn-next"
+          class="stage-next-fab"
+          type="button"
+          aria-label="Next slide"
+        >
+          <span class="stage-next-fab-label">Next slide</span>
+          <span class="stage-next-fab-arrow" aria-hidden="true">→</span>
+        </button>
       </div>
     </div>
 
