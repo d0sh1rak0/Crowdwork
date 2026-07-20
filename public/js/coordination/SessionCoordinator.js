@@ -90,6 +90,8 @@ class SessionCoordinator {
       getLanguage: () => "en",
       /** Optional: () => string — Whisper vocabulary / slide prompt */
       getWhisperPrompt: () => "",
+      /** Optional: () => number — slide index at capture start */
+      getSlideIndex: () => 0,
       shouldRun: () => true,
       /** Optional: () => boolean — mic visualizer sees energy */
       hasMicSignal: () => false,
@@ -348,6 +350,10 @@ class SessionCoordinator {
       typeof this._handlers.getWhisperPrompt === "function"
         ? String(this._handlers.getWhisperPrompt() || "").trim()
         : "";
+    const slideIndex =
+      typeof this._handlers.getSlideIndex === "function"
+        ? Number(this._handlers.getSlideIndex())
+        : 0;
 
     const text = await audioTranscriptionService.transcribeAudioPayload(
       blob,
@@ -366,7 +372,7 @@ class SessionCoordinator {
     if (clean) {
       pacingTelemetry.registerClearSpeech(clean);
       this._handlers.onClearSpeech?.({ text: clean, bytes: blob.size });
-      this._handlers.onTranscript?.(clean);
+      this._handlers.onTranscript?.(clean, { slideIndex });
     } else if (audioPresent) {
       console.warn(
         `[SessionCoordinator] UNCLEAR SPEECH — audio bytes=${blob.size} but empty STT`

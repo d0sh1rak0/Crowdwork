@@ -467,7 +467,7 @@ function updateLiveTranscript(text) {
 }
 
 /** STT text → metrics + attention reset (waveform alone must never reset meters). */
-function processTranscriptChunk(text) {
+function processTranscriptChunk(text, slideIndexHint) {
   const clean = String(text || "").trim();
   if (!clean) return;
 
@@ -476,7 +476,12 @@ function processTranscriptChunk(text) {
 
   updateLiveTranscript(clean);
 
-  const slideIndex = index;
+  const slideIndex =
+    typeof slideIndexHint === "number" &&
+    slideIndexHint >= 0 &&
+    slideIndexHint < transcripts.length
+      ? slideIndexHint
+      : index;
   const prev = transcripts[slideIndex] || "";
   transcripts[slideIndex] = mergeTranscriptChunk(prev, clean);
   const words = wordCount(clean);
@@ -490,7 +495,7 @@ function processTranscriptChunk(text) {
   updateMetricHud(metrics || vocalMetricsService.getSnapshot());
 
   // Intelligent auto-advance: ≥70% of slide budget + script progress/tail match
-  maybeAutoAdvanceSlide();
+  if (slideIndex === index) maybeAutoAdvanceSlide();
 }
 
 function maybeAutoAdvanceSlide() {
@@ -720,8 +725,9 @@ function startRecording() {
     shouldRun: () => phase === "running" && !paused && !micDenied,
     getLanguage: () => state().resolvedLanguage || "en",
     getWhisperPrompt: () => whisperPromptForSlide(),
+    getSlideIndex: () => index,
     hasMicSignal: () => Boolean(waveform?.hasSignal?.()),
-    onTranscript: (text) => processTranscriptChunk(text),
+    onTranscript: (text, meta) => processTranscriptChunk(text, meta?.slideIndex),
     onClearSpeech: () => {
       if (phase !== "running" || paused) return;
       audience?.onClearSpeech();
@@ -805,23 +811,26 @@ async function stopRecording() {
 
 async function goNext() {
   const s = state();
-  await flushTranscript();
+  // Advance immediately — never block the click on Whisper flush (was 2–8s lag)
   slideTimes[index] = slideElapsed;
   if (index >= s.scriptSlides.length - 1) {
-    finishRun();
+    await finishRun();
     return;
   }
   index += 1;
   slideElapsed = 0;
+  sessionTimerService.resetSilenceCounter();
+  hesitationApplied = false;
   renderSlide();
 }
 
 async function goPrev() {
   if (index <= 0) return;
-  await flushTranscript();
   slideTimes[index] = slideElapsed;
   index -= 1;
   slideElapsed = slideTimes[index] || 0;
+  sessionTimerService.resetSilenceCounter();
+  hesitationApplied = false;
   renderSlide();
 }
 
