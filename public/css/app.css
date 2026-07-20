@@ -2119,29 +2119,6 @@ body.game-skin {
   border-radius: inherit;
 }
 
-.custdev-audience {
-  margin: 0 0 1.1rem;
-  color: var(--muted);
-  line-height: 1.5;
-  font-size: 0.95rem;
-}
-.custdev-q-title {
-  margin: 0 0 0.65rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--gold);
-}
-.custdev-questions {
-  margin: 0;
-  padding-left: 1.2rem;
-  color: var(--text);
-  font-size: 0.9rem;
-  line-height: 1.45;
-}
-.custdev-questions li + li {
-  margin-top: 0.55rem;
-}
-
 .btn-game {
   width: 100%;
   border-radius: 12px;
