@@ -2218,6 +2218,71 @@ body.game-skin {
   border-radius: inherit;
 }
 
+.heckle-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  user-select: none;
+}
+.heckle-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.heckle-toggle-ui {
+  flex: 0 0 auto;
+  width: 2.6rem;
+  height: 1.45rem;
+  margin-top: 0.15rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.heckle-toggle-ui::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: #c8c8c8;
+  transition: transform 160ms ease, background 160ms ease;
+}
+.heckle-toggle input:checked + .heckle-toggle-ui {
+  background: color-mix(in srgb, var(--gold) 35%, transparent);
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+}
+.heckle-toggle input:checked + .heckle-toggle-ui::after {
+  transform: translateX(1.1rem);
+  background: var(--gold);
+}
+.heckle-toggle-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.heckle-toggle-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.heckle-toggle-sub {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .btn-game {
   width: 100%;
   border-radius: 12px;
@@ -2251,6 +2316,45 @@ body.game-skin {
   color: var(--boss);
   box-shadow: 0 0 20px rgba(255, 214, 10, 0.35);
   animation: boss-pulse 1.6s ease-in-out infinite;
+}
+
+.heckle-run-toggle {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.78);
+  color: var(--muted);
+  font-family: var(--font-utility);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+.heckle-run-toggle input {
+  accent-color: var(--gold);
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  cursor: pointer;
+}
+.heckle-run-toggle:has(input:checked) {
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  color: var(--gold);
+}
+
+@media (max-width: 640px) {
+  .heckle-run-toggle {
+    top: 2.85rem;
+    right: 0.5rem;
+  }
 }
 
 @media (max-width: 560px) {

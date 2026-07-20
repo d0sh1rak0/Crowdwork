@@ -22,6 +22,7 @@ import {
   setFeedback,
   setObjections,
   setRehearsalReport,
+  updateSetup,
 } from "./store.js";
 import { detectFillers, fillerTotal, formatTime, wordCount } from "./utils.js";
 
@@ -42,6 +43,7 @@ const controls = document.getElementById("controls");
 const btnNext = document.getElementById("btn-next");
 const camVideo = document.getElementById("cam-video");
 const camFallback = document.getElementById("cam-fallback");
+const hecklersRunEl = document.getElementById("hecklers-run");
 
 let phase = "boot";
 let index = 0;
@@ -215,6 +217,32 @@ function initAudience() {
     badge.textContent = level.isBoss ? "FINAL BOSS" : level.badge;
     badge.dataset.boss = level.isBoss ? "1" : "0";
   }
+  syncHecklerRunToggle();
+}
+
+function syncHecklerRunToggle() {
+  if (!hecklersRunEl) return;
+  hecklersRunEl.checked = hecklersAreOn();
+}
+
+if (hecklersRunEl) {
+  hecklersRunEl.addEventListener("change", () => {
+    updateSetup({ hecklersEnabled: hecklersRunEl.checked });
+    if (!hecklersRunEl.checked) {
+      // Stop any in-flight heckle audio when turning off mid-pitch
+      if (heckleAudio) {
+        try {
+          heckleAudio.pause();
+        } catch {
+          /* ignore */
+        }
+        heckleAudio = null;
+      }
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      hesitationApplied = false;
+      sessionTimerService.resetSilenceCounter();
+    }
+  });
 }
 
 /* Filler hits are handled by VocalMetricsService → audience.onFillerHit */
@@ -524,15 +552,21 @@ function maybeAutoAdvanceSlide() {
 }
 
 /** Silence Sentinel — independent of MediaRecorder chunk delivery */
+function hecklersAreOn() {
+  return state().setup?.hecklersEnabled !== false;
+}
+
 function startSilenceSentinel() {
   hesitationApplied = false;
   sessionTimerService.startTracking(
     (seconds) => {
       if (phase !== "running" || paused) return;
+      if (!hecklersAreOn()) return;
       void fireHeckleStrike(seconds);
     },
     (seconds, flags) => {
       if (phase !== "running" || paused) return;
+      if (!hecklersAreOn()) return;
       if (flags.hesitation && !hesitationApplied) {
         hesitationApplied = true;
         audience?.onHesitationWarning();
@@ -542,6 +576,7 @@ function startSilenceSentinel() {
 }
 
 async function fireHeckleStrike(silenceSeconds) {
+  if (!hecklersAreOn()) return;
   if (heckleInFlight || phase !== "running") return;
   heckleInFlight = true;
   const s = state();

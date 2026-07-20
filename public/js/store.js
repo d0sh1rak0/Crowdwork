@@ -19,6 +19,8 @@ const defaultSetup = () => ({
   paceRecommendedWpm: null,
   /** True once the user confirms a pace in the tuner */
   paceConfirmed: false,
+  /** Investor heckles on dead air — optional for calmer practice */
+  hecklersEnabled: true,
 });
 
 function blank() {

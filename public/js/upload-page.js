@@ -43,6 +43,7 @@ const parseBtn = document.getElementById("parse-script-btn");
 const parseMeta = document.getElementById("parse-meta");
 const parsedStack = document.getElementById("parsed-stack");
 const levelsEl = document.getElementById("pitch-levels");
+const hecklersEnabledEl = document.getElementById("hecklers-enabled");
 
 const DURATIONS = [3, 5, 7, 10, 15, 20];
 const TONES = [
@@ -92,6 +93,22 @@ function showContextBanner(message, tone = "error") {
 function hydrateContextBanner() {
   const banner = consumeUploadBanner();
   if (banner) showContextBanner(banner.message, banner.tone);
+}
+
+function hecklersEnabled() {
+  return setup.hecklersEnabled !== false;
+}
+
+function syncHecklerToggle() {
+  if (!hecklersEnabledEl) return;
+  hecklersEnabledEl.checked = hecklersEnabled();
+}
+
+if (hecklersEnabledEl) {
+  hecklersEnabledEl.addEventListener("change", () => {
+    setup.hecklersEnabled = hecklersEnabledEl.checked;
+    updateSetup({ hecklersEnabled: hecklersEnabledEl.checked });
+  });
 }
 
 function renderLevels() {
@@ -335,6 +352,7 @@ async function writeScript() {
     targetMinutes: setup.targetMinutes,
     tone: setup.tone,
     pitchLevel: setup.pitchLevel || 2,
+    hecklersEnabled: setup.hecklersEnabled !== false,
   });
 
   // Pasted-script path: already have spoken lines — go pitch (via script studio)
@@ -433,8 +451,11 @@ if (existing.slides.length) {
   audience.value = existing.setup.audience || "";
   notes.value = existing.setup.notes || "";
   setup = { ...existing.setup };
+  if (setup.hecklersEnabled == null) setup.hecklersEnabled = true;
+  syncHecklerToggle();
 }
 
 hydrateContextBanner();
 renderLevels();
 renderChips();
+syncHecklerToggle();
