@@ -6,7 +6,8 @@ const MODEL_CANDIDATES = [
   "gemini-flash-latest",
   "gemini-2.0-flash",
   "gemini-2.0-flash-001",
-  "gemini-2.5-flash",
+  // gemini-2.5-flash returns 404 for many new API keys — skip it
+  "gemini-2.5-flash-lite",
 ].filter(Boolean);
 
 const UNIQUE_MODELS = [...new Set(MODEL_CANDIDATES)];
@@ -123,7 +124,11 @@ export async function generateJson(_model, parts, opts = {}) {
       lastErr = err instanceof Error ? err : new Error(String(err));
       console.warn(`[gemini] model ${modelName} failed:`, lastErr.message);
       const msg = lastErr.message || "";
-      if (/quota|billing|plan and billing/i.test(msg)) quotaErr = lastErr;
+      if (/quota|billing|plan and billing/i.test(msg)) {
+        quotaErr = lastErr;
+        // Free-tier / billing blocks usually apply project-wide — fail fast to allow Groq fallback
+        break;
+      }
       if (/api.?key|is not set|unauthorized|forbidden/i.test(msg)) break;
       // Skip missing model ids quickly
       if (/404|not found|not supported/i.test(msg)) continue;

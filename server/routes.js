@@ -9,6 +9,11 @@ import {
   parseJsonLoose,
 } from "./prompts.js";
 import { generateJson, getGeminiModel, slideParts } from "./gemini.js";
+import {
+  generateBatchViaGroq,
+  hasGroqLlm,
+  regenerateOneViaGroq,
+} from "./groqScript.js";
 import { toWhisperWav } from "./audioConvert.js";
 import {
   inspectRateLimitError,
@@ -41,7 +46,7 @@ function globalContext(body) {
     .join("\n");
 }
 
-async function generateBatch(body, batchSlides, batchLabel) {
+async function generateBatchGemini(body, batchSlides, batchLabel) {
   const model = getGeminiModel(SCRIPT_SYSTEM_PROMPT);
   const parts = [
     {
@@ -74,6 +79,26 @@ Batch slides only. No extra keys.`,
   return parsed.slides;
 }
 
+async function generateBatch(body, batchSlides, batchLabel) {
+  try {
+    return await generateBatchGemini(body, batchSlides, batchLabel);
+  } catch (err) {
+    const rate = inspectRateLimitError(err);
+    if (!hasGroqLlm() || !(rate.isHardFault || rate.isRateLimit)) throw err;
+    console.warn(
+      "[generate-script] Gemini unavailable — falling back to Groq LLM:",
+      rate.message.slice(0, 160)
+    );
+    return generateBatchViaGroq(
+      body,
+      batchSlides,
+      batchLabel,
+      globalContext(body),
+      buildOutline(body.slides)
+    );
+  }
+}
+
 /** Keep spoken scripts pitch-length, not essay-length. */
 function clampSpokenScript(script, seconds) {
   const text = String(script || "").trim();
@@ -87,7 +112,7 @@ function clampSpokenScript(script, seconds) {
   return (sentenceCut ? sentenceCut[0] : sliced).trim();
 }
 
-async function regenerateOne(body) {
+async function regenerateOneGemini(body) {
   const target = body.regenerate;
   const slide = body.slides.find((s) => s.n === target.n);
   if (!slide) throw new Error(`Slide ${target.n} not found`);
@@ -117,6 +142,20 @@ Return JSON with a slides array containing exactly one object for slide ${target
     maxOutputTokens: 2000,
   });
   return parsed.slides || [];
+}
+
+async function regenerateOne(body) {
+  try {
+    return await regenerateOneGemini(body);
+  } catch (err) {
+    const rate = inspectRateLimitError(err);
+    if (!hasGroqLlm() || !(rate.isHardFault || rate.isRateLimit)) throw err;
+    console.warn(
+      "[generate-script] Gemini regenerate unavailable — falling back to Groq LLM:",
+      rate.message.slice(0, 160)
+    );
+    return regenerateOneViaGroq(body, globalContext(body));
+  }
 }
 
 export function createApiRouter() {
