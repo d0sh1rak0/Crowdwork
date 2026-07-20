@@ -108,11 +108,11 @@ export function createAudienceEngine({
   levelConfig = null,
 }) {
   const level = levelConfig || {
-    startAttention: 78,
-    pauseDecay: 0.25,
-    rushPenalty: 8,
-    fillerPenalty: 9,
-    steadyBonus: 4,
+    startAttention: 88,
+    pauseDecay: 0.45,
+    rushPenalty: 4,
+    fillerPenalty: 4,
+    steadyBonus: 5,
     difficultyMult: 1,
   };
   let attention = level.startAttention;
@@ -204,19 +204,19 @@ export function createAudienceEngine({
     el.classList.toggle("is-confused", mood === "confused" || mood === "expectant");
   }
 
-  /** Silence Sentinel — 3s hesitation: ENGAGED → CONFUSED / EXPECTANT */
+  /** Silence Sentinel — hesitation: soft nudge, not a meter dump */
   function onHesitationWarning() {
-    attention = clamp(attention - 5);
+    attention = clamp(attention - 2);
     attentionFill.dataset.mood = "drifting";
     attentionLabel.textContent = "Hesitation";
     attentionLabel.dataset.mood = "drifting";
     if (houseEl) houseEl.dataset.mood = "confused";
     members.forEach((m, i) => {
       setPersonMood(m, i % 2 === 0 ? "confused" : "expectant");
-      m.restless = Math.min(12, m.restless + 2);
+      m.restless = Math.min(12, m.restless + 1);
     });
     pushReaction("pause", pick(["…", "waiting", "go on?", "hmm"]));
-    roomAudio.setTension(0.55);
+    roomAudio.setTension(0.4);
     renderAttention();
   }
 
@@ -236,11 +236,11 @@ export function createAudienceEngine({
     const mood = map[state] || "restless";
 
     if (state === "HECKLE" || state === "RESTLESS") {
-      attention = clamp(attention - (state === "HECKLE" ? 14 : 10));
+      attention = clamp(attention - (state === "HECKLE" ? 8 : 5));
       events.pauses += 1;
       triggerGiggleWave(state === "HECKLE");
     } else {
-      attention = clamp(attention - 6);
+      attention = clamp(attention - 2);
     }
 
     if (houseEl) {
@@ -397,18 +397,18 @@ export function createAudienceEngine({
     /* no-op for attention — kept for API compatibility */
   }
 
-  /** Precise text-gap pause from VocalMetrics (≥ 1.5s since last Whisper words). */
+  /** Precise text-gap pause from Whisper (≥ pause threshold, throttled ~1/sec). */
   function onTextPause(pauseMs) {
-    if (pauseMs < 1500) return;
+    if (pauseMs < 4800) return;
     if (!pauseLatched) {
       pauseLatched = true;
       events.pauses += 1;
-      attention = clamp(attention - 4);
+      attention = clamp(attention - 2);
       pushReaction("pause", pick(["…", "waiting", "breath held", "go on?"]));
     } else {
-      // Scaled pause decay by pitch level difficulty
+      // Soft ongoing decay — only once per throttled callback (~1/s)
       attention = clamp(attention - level.pauseDecay);
-      if (pauseMs >= 2800 && pauseMs < 3000 && attention < 55) {
+      if (pauseMs >= 7000 && pauseMs < 7200 && attention < 45) {
         triggerGiggleWave(false);
       }
     }
@@ -420,11 +420,11 @@ export function createAudienceEngine({
     if (pauseLatched) {
       pauseLatched = false;
       const now = performance.now();
-      if (now - lastRecoverAt > 3000) {
+      if (now - lastRecoverAt > 2000) {
         lastRecoverAt = now;
         pushReaction("recover");
         roomAudio.hush();
-        attention = clamp(attention + 3);
+        attention = clamp(attention + 4);
       }
     }
     silenceMs = 0;
@@ -445,7 +445,7 @@ export function createAudienceEngine({
         }, 1200);
       }
     });
-    if (attention < 60) triggerGiggleWave(attention < 40);
+    if (attention < 45) triggerGiggleWave(attention < 30);
     renderAttention();
   }
 
@@ -458,13 +458,13 @@ export function createAudienceEngine({
       setTimeout(() => m.el.classList.remove("is-lean-back"), 1400);
     });
     pushReaction("lose", wpm ? `${wpm} wpm` : "too fast");
-    roomAudio.setTension(0.7);
+    roomAudio.setTension(0.55);
     renderAttention();
   }
 
   /** Flat delivery — boredom / yawn */
   function onMonotone() {
-    attention = clamp(attention - 6);
+    attention = clamp(attention - 3);
     if (houseEl) houseEl.dataset.delivery = "monotone";
     members.forEach((m, i) => {
       m.el.classList.add("is-bored");
@@ -474,12 +474,12 @@ export function createAudienceEngine({
       }, 1600);
     });
     pushReaction("murmur", pick(["yawn", "flat", "zoning out", "zzz"]));
-    roomAudio.setTension(0.5);
+    roomAudio.setTension(0.35);
     renderAttention();
   }
 
   function onGoodStretch() {
-    attention = clamp(attention + 2.5);
+    attention = clamp(attention + 3);
     if (houseEl) houseEl.dataset.delivery = "steady";
     renderAttention();
   }
@@ -505,7 +505,7 @@ export function createAudienceEngine({
 
   /** Confident STT + mic signal */
   function onClearSpeech() {
-    attention = clamp(attention + 3.5);
+    attention = clamp(attention + 4);
     if (houseEl) houseEl.dataset.delivery = "steady";
     members.forEach((m, i) => {
       m.el.classList.remove("is-look-away", "is-arms-crossed", "is-confused");
@@ -515,25 +515,23 @@ export function createAudienceEngine({
     renderAttention();
   }
 
-  /** Mic energy but empty / junk STT */
+  /** Mic energy but empty / junk STT — soft touch (Whisper misses often) */
   function onUnclearSpeech() {
-    attention = clamp(attention - 5);
+    attention = clamp(attention - 1);
     if (houseEl) houseEl.dataset.delivery = "unclear";
     members.forEach((m, i) => {
-      if (i % 3 === 0) {
-        m.el.classList.add("is-confused", "is-arms-crossed");
+      if (i % 4 === 0) {
+        m.el.classList.add("is-confused");
         setTimeout(() => {
-          m.el.classList.remove("is-confused", "is-arms-crossed");
-        }, 1300);
+          m.el.classList.remove("is-confused");
+        }, 1000);
       }
     });
-    pushReaction("confused", pick(["huh?", "say again?", "muddy", "lost it"]));
-    roomAudio.setTension(0.55);
     renderAttention();
   }
 
   function onTooSlow(wpm) {
-    attention = clamp(attention - 4);
+    attention = clamp(attention - 2);
     if (houseEl) houseEl.dataset.delivery = "slow";
     members.forEach((m, i) => {
       if (i % 4 === 0) m.el.classList.add("is-bored");

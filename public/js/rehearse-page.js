@@ -382,10 +382,9 @@ function startVocalMetrics() {
       flashFillerWarning(word, total);
       audience?.onFillerHit(word);
     },
-    onRushed: ({ wpm }) => {
+    onRushed: () => {
+      // PacingTelemetry owns rush penalties — avoid double-hitting attention
       if (phase !== "running" || paused) return;
-      flashPacingWarning("Pacing: RUSHING!", "rush");
-      audience?.onRushed(wpm);
       setMetricState("Rushed", "danger");
     },
     onMonotone: () => {
@@ -402,7 +401,7 @@ function startVocalMetrics() {
 function decayAttentionMeter(pauseMs) {
   if (phase !== "running" || paused) return;
   audience?.onTextPause(pauseMs);
-  if (pauseMs >= 1500) setMetricState("Pause", "warn");
+  if (pauseMs >= 4800) setMetricState("Pause", "warn");
 }
 
 function onSpeechActivityResumed() {

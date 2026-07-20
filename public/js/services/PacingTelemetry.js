@@ -16,7 +16,7 @@ import {
   derivePaceBands,
 } from "./paceConfig.js";
 
-const PAUSE_THRESHOLD_MS = 1500;
+const PAUSE_THRESHOLD_MS = 4800;
 /** Stable rolling buffer used as the WPM denominator */
 const WPM_WINDOW_MS = 5000;
 /** Hard floor so (words / seconds) never explodes on sub-second snaps */
@@ -26,6 +26,10 @@ const HEALTHY_MIN = DEFAULT_BANDS.healthyMin;
 const HEALTHY_MAX = DEFAULT_BANDS.healthyMax;
 const RUSH_WPM = DEFAULT_BANDS.rushWpm;
 const SLOW_WPM = DEFAULT_BANDS.slowWpm;
+/** Don't hammer rush/slow penalties — room should feel coachable */
+const RUSH_COOLDOWN_MS = 8000;
+const SLOW_COOLDOWN_MS = 9000;
+const STEADY_COOLDOWN_MS = 4000;
 
 /** Placeholder / non-lexical Whisper junk */
 const UNCLEAR_RE =
@@ -332,7 +336,7 @@ class PacingTelemetry {
     const healthyMax = this.healthyMax;
 
     // Need enough lexical mass before judging slow/rush
-    if (wordsInWindow < 4 && wpm < rushWpm) {
+    if (wordsInWindow < 6 && wpm < rushWpm) {
       this.pacingBand = "idle";
       this._healthySince = null;
       return;
@@ -341,7 +345,7 @@ class PacingTelemetry {
     if (wpm >= rushWpm) {
       this.pacingBand = "rush";
       this._healthySince = null;
-      if (now - this._lastRushAt > 3500) {
+      if (now - this._lastRushAt > RUSH_COOLDOWN_MS) {
         this._lastRushAt = now;
         this._handlers.onRushing?.({ wpm });
         this._emit({ type: "rushing", wpm, at: now });
@@ -349,10 +353,10 @@ class PacingTelemetry {
       return;
     }
 
-    if (wpm > 0 && wpm < slowWpm && wordsInWindow >= 6) {
+    if (wpm > 0 && wpm < slowWpm && wordsInWindow >= 10) {
       this.pacingBand = "slow";
       this._healthySince = null;
-      if (now - this._lastSlowAt > 4000) {
+      if (now - this._lastSlowAt > SLOW_COOLDOWN_MS) {
         this._lastSlowAt = now;
         this._handlers.onTooSlow?.({ wpm });
         this._emit({ type: "too-slow", wpm, at: now });
@@ -363,10 +367,10 @@ class PacingTelemetry {
     if (wpm >= healthyMin && wpm <= healthyMax) {
       this.pacingBand = "healthy";
       if (this._healthySince == null) this._healthySince = now;
-      // Sustained healthy band across a full 5s sampling block
+      // Sustained healthy band — reward more often than we punish
       if (
-        now - this._healthySince >= WPM_WINDOW_MS &&
-        now - this._lastSteadyAt > WPM_WINDOW_MS
+        now - this._healthySince >= 3000 &&
+        now - this._lastSteadyAt > STEADY_COOLDOWN_MS
       ) {
         this._lastSteadyAt = now;
         this._handlers.onSteadyPacing?.({ wpm });
@@ -393,6 +397,7 @@ class PacingTelemetry {
     this._lastPacketText = "";
     this._lastPacketAt = 0;
     this._windowStartedAt = null;
+    this._lastPauseEmitAt = 0;
     this._onSeverePause = onSeverePause || null;
     this._onSpeech = onSpeech || null;
     this._holdDecay = options.holdDecay || null;
@@ -408,8 +413,13 @@ class PacingTelemetry {
       if (!this._pauseLatched) {
         this._pauseLatched = true;
       }
-      this._onSeverePause?.(pauseMs);
-      this._emit({ type: "pause", pauseMs, at: Date.now() });
+      // Throttle pause callbacks to ~1/sec so attention doesn't bleed every 100ms
+      // during normal Whisper latency between slices.
+      if (!this._lastPauseEmitAt || Date.now() - this._lastPauseEmitAt >= 1000) {
+        this._lastPauseEmitAt = Date.now();
+        this._onSeverePause?.(pauseMs);
+        this._emit({ type: "pause", pauseMs, at: Date.now() });
+      }
     }, 100);
   }
 

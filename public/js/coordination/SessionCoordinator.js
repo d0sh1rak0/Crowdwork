@@ -320,7 +320,7 @@ class SessionCoordinator {
     return blob;
   }
 
-  async _shipBlob(blob) {
+  async _shipBlob(blob, opts = {}) {
     if (!blob || blob.size === 0) return null;
 
     // Strip codec params for uploads (audio/webm;codecs=opus → audio/webm)
@@ -351,9 +351,11 @@ class SessionCoordinator {
         ? String(this._handlers.getWhisperPrompt() || "").trim()
         : "";
     const slideIndex =
-      typeof this._handlers.getSlideIndex === "function"
-        ? Number(this._handlers.getSlideIndex())
-        : 0;
+      typeof opts.slideIndex === "number" && Number.isFinite(opts.slideIndex)
+        ? opts.slideIndex
+        : typeof this._handlers.getSlideIndex === "function"
+          ? Number(this._handlers.getSlideIndex())
+          : 0;
 
     const text = await audioTranscriptionService.transcribeAudioPayload(
       blob,
@@ -393,10 +395,18 @@ class SessionCoordinator {
     return clean || null;
   }
 
+  _currentSlideIndex() {
+    return typeof this._handlers.getSlideIndex === "function"
+      ? Number(this._handlers.getSlideIndex())
+      : 0;
+  }
+
   async _tickSlice() {
     if (this._stopped || this._busy) return;
     if (!this._handlers.shouldRun()) return;
     this._busy = true;
+    // Freeze slide id before the multi-second capture so Next stays instant-safe
+    const slideIndex = this._currentSlideIndex();
     try {
       const blob = await this._captureWholeSlice(this._sliceMs);
       if (!blob || blob.size < 256) {
@@ -407,7 +417,7 @@ class SessionCoordinator {
         }
         return;
       }
-      await this._shipBlob(blob);
+      await this._shipBlob(blob, { slideIndex });
     } catch (err) {
       console.error("Transcription pipeline execution crash:", err);
       this._handlers.onError?.(err);
@@ -423,13 +433,14 @@ class SessionCoordinator {
       await new Promise((r) => setTimeout(r, 40));
     }
     this._busy = true;
+    const slideIndex = this._currentSlideIndex();
     try {
       // Final flush still needs enough audio for Whisper duration checks
       const blob = await this._captureWholeSlice(
         Math.min(2000, this._sliceMs)
       );
       if (!blob || blob.size < 200) return null;
-      return await this._shipBlob(blob);
+      return await this._shipBlob(blob, { slideIndex });
     } catch (err) {
       console.error("Transcription pipeline execution crash:", err);
       this._handlers.onError?.(err);

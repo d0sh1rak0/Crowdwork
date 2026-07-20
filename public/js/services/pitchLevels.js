@@ -1,5 +1,6 @@
 /**
  * Pitch campaign levels — rising difficulty, Final Boss climax.
+ * Tuned so attention is coachable (not a constant drain).
  */
 
 export const PITCH_LEVELS = [
@@ -10,11 +11,11 @@ export const PITCH_LEVELS = [
     badge: "LVL 1",
     blurb: "Friendly room. Build the habit.",
     difficultyMult: 0.75,
-    startAttention: 88,
-    pauseDecay: 0.18,
-    rushPenalty: 5,
-    fillerPenalty: 6,
-    steadyBonus: 5,
+    startAttention: 92,
+    pauseDecay: 0.35,
+    rushPenalty: 3,
+    fillerPenalty: 3,
+    steadyBonus: 6,
   },
   {
     id: 2,
@@ -23,11 +24,11 @@ export const PITCH_LEVELS = [
     badge: "LVL 2",
     blurb: "Real eyes on you. Keep the pace.",
     difficultyMult: 1,
-    startAttention: 78,
-    pauseDecay: 0.25,
-    rushPenalty: 8,
-    fillerPenalty: 9,
-    steadyBonus: 4,
+    startAttention: 88,
+    pauseDecay: 0.45,
+    rushPenalty: 4,
+    fillerPenalty: 4,
+    steadyBonus: 5,
   },
   {
     id: 3,
@@ -35,12 +36,12 @@ export const PITCH_LEVELS = [
     name: "Arena",
     badge: "LVL 3",
     blurb: "Judges lean in. Mistakes cost more.",
-    difficultyMult: 1.35,
-    startAttention: 70,
-    pauseDecay: 0.35,
-    rushPenalty: 11,
-    fillerPenalty: 12,
-    steadyBonus: 3,
+    difficultyMult: 1.25,
+    startAttention: 82,
+    pauseDecay: 0.55,
+    rushPenalty: 6,
+    fillerPenalty: 6,
+    steadyBonus: 4,
   },
   {
     id: 4,
@@ -48,12 +49,12 @@ export const PITCH_LEVELS = [
     name: "Final Boss",
     badge: "BOSS",
     blurb: "Spotlight max. Survive the room.",
-    difficultyMult: 1.75,
-    startAttention: 62,
-    pauseDecay: 0.45,
-    rushPenalty: 14,
-    fillerPenalty: 15,
-    steadyBonus: 3,
+    difficultyMult: 1.5,
+    startAttention: 78,
+    pauseDecay: 0.7,
+    rushPenalty: 8,
+    fillerPenalty: 8,
+    steadyBonus: 4,
     isBoss: true,
   },
 ];
