@@ -703,12 +703,18 @@ a:hover {
 }
 .timer-total {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: 3.35rem;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
   z-index: 20;
+  max-width: min(14rem, 46vw);
+  text-align: center;
   font-family: var(--font-utility);
-  font-size: clamp(1.1rem, 3vw, 1.35rem);
+  font-size: clamp(1.05rem, 2.8vw, 1.3rem);
   transition: opacity 180ms ease-out;
+  pointer-events: none;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
 }
 .stage-content {
   position: relative;
@@ -781,8 +787,8 @@ a:hover {
   flex-direction: column;
   align-items: center;
   gap: 0.35rem;
-  padding: 2.5rem 1rem 1.25rem;
-  background: linear-gradient(to top, var(--bg), color-mix(in srgb, var(--bg) 80%, transparent), transparent);
+  padding: 1.25rem 1rem 1.25rem;
+  background: transparent;
   transition: opacity 180ms ease-out;
   pointer-events: none;
 }
@@ -821,7 +827,7 @@ a:hover {
   min-width: min(18rem, 88%);
   min-height: 3.85rem;
   padding: 1.05rem 1.85rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--amber) 70%, var(--border));
   border-radius: 999px;
   background: linear-gradient(
     135deg,
@@ -834,11 +840,31 @@ a:hover {
   font-weight: 650;
   letter-spacing: -0.01em;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--amber) 45%, transparent),
     0 14px 36px color-mix(in srgb, var(--accent) 38%, transparent);
   cursor: pointer;
   transform: none;
+  isolation: isolate;
   transition: transform 100ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+/* Solid yellow plate behind Next so it pops off the stage */
+.stage-next-fab::before {
+  content: "";
+  position: absolute;
+  inset: -0.55rem -0.85rem;
+  z-index: -1;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    #ffe566 0%,
+    #ffd60a 45%,
+    #e6c200 100%
+  );
+  box-shadow:
+    0 0 0 2px rgba(255, 214, 10, 0.55),
+    0 0 36px rgba(255, 214, 10, 0.55),
+    0 12px 28px rgba(230, 194, 0, 0.35);
+  pointer-events: none;
 }
 .stage-next-fab:hover {
   transform: translateY(-2px) scale(1.03);
@@ -1145,9 +1171,12 @@ a:hover {
 }
 .pitch-main .stage-script {
   margin-top: 1rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
   font-size: clamp(1rem, 1.8vw, 1.25rem);
   max-width: 40rem;
+}
+.pitch-main .stage-next-fab {
+  flex-shrink: 0;
 }
 
 .pitch-side {
@@ -1193,28 +1222,27 @@ a:hover {
   margin: 2.75rem 0 0.25rem;
   padding: 0.65rem 1rem 0.9rem;
   min-height: 148px;
-  background:
-    linear-gradient(to bottom, rgba(8, 8, 10, 0.6), rgba(16, 17, 19, 0.1) 80%, transparent);
+  background: transparent;
   --room-energy: 0.2;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 22%, transparent);
 }
 .house-glow {
   pointer-events: none;
   position: absolute;
-  inset: auto 8% -8%;
-  height: 90px;
+  inset: -30% 5% auto;
+  height: 140px;
   background: radial-gradient(
-    ellipse 70% 80% at 50% 0%,
-    rgba(242, 163, 60, calc(0.1 + var(--room-energy) * 0.16)),
-    transparent 70%
+    ellipse 75% 90% at 50% 100%,
+    rgba(242, 163, 60, calc(0.18 + var(--room-energy) * 0.22)),
+    transparent 72%
   );
   transition: opacity 300ms ease-out;
 }
 .house[data-mood="checked"] .house-glow {
   background: radial-gradient(
-    ellipse 70% 80% at 50% 0%,
-    rgba(229, 83, 60, 0.2),
-    transparent 70%
+    ellipse 75% 90% at 50% 100%,
+    rgba(229, 83, 60, 0.22),
+    transparent 72%
   );
 }
 .house-rail {
@@ -2386,7 +2414,7 @@ body.game-skin {
   position: absolute;
   top: 0.85rem;
   right: 0.85rem;
-  z-index: 6;
+  z-index: 22;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -2416,9 +2444,9 @@ body.game-skin {
 
 .memorize-run-toggle {
   position: absolute;
-  top: 0.85rem;
-  right: 7.6rem;
-  z-index: 6;
+  top: 2.85rem;
+  right: 0.85rem;
+  z-index: 22;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -2537,12 +2565,15 @@ body.game-skin {
 
 @media (max-width: 640px) {
   .heckle-run-toggle {
-    top: 2.85rem;
+    top: 0.75rem;
     right: 0.5rem;
   }
   .memorize-run-toggle {
-    top: 2.85rem;
-    right: 6.9rem;
+    top: 2.65rem;
+    right: 0.5rem;
+  }
+  .timer-total {
+    top: 5.35rem;
   }
 }
 
