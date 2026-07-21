@@ -50,9 +50,22 @@ app.use((err, _req, res, _next) => {
 });
 
 if (process.env.VERCEL !== "1") {
-  app.listen(PORT, () => {
-    console.log(`Crowdwork running at http://localhost:${PORT}`);
+  // 0.0.0.0 so both 127.0.0.1 and tunnel agents can connect
+  const host = process.env.HOST || "0.0.0.0";
+  const server = app.listen(PORT, host, () => {
+    console.log(`Crowdwork running at http://${host}:${PORT}`);
+  });
+  server.on("error", (err) => {
+    console.error("[server] listen error:", err);
   });
 }
+
+// Keep the process alive on unexpected upstream SDK throws (still log loudly)
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err);
+});
 
 export default app;

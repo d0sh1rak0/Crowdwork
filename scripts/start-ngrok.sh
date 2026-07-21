@@ -19,17 +19,17 @@ pkill -f "$NGROK_BIN http" 2>/dev/null || true
 sleep 0.5
 
 echo "Crowdwork ngrok binder"
-echo "  target : http://localhost:${PORT}"
-echo "  domain : ${DOMAIN}"
-echo "  note   : use the https:// URL only (mic/camera require secure context)"
-echo
+echo "  target : http://127.0.0.1:${PORT}"
+  echo "  domain : ${DOMAIN}"
+  echo "  note   : use the https:// URL only (mic/camera require secure context)"
+  echo
 
 attempt=1
 while true; do
   echo "[attempt ${attempt}] starting ngrok…"
   : >"$LOG"
   set +e
-  "$NGROK_BIN" http "$PORT" \
+  "$NGROK_BIN" http "127.0.0.1:${PORT}" \
     --url "$DOMAIN" \
     --log=stdout 2>&1 | tee "$LOG"
   code=${PIPESTATUS[0]}

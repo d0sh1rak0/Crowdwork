@@ -1,13 +1,13 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { parseJsonLoose } from "./prompts.js";
 
+// Prefer aliases that stay valid for new API keys (2.0 / 2.5-flash are 404 for many).
 const MODEL_CANDIDATES = [
   process.env.GEMINI_MODEL,
   "gemini-flash-latest",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-001",
-  // gemini-2.5-flash returns 404 for many new API keys — skip it
-  "gemini-2.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-pro-latest",
 ].filter(Boolean);
 
 const UNIQUE_MODELS = [...new Set(MODEL_CANDIDATES)];
@@ -61,7 +61,15 @@ function withTimeout(promise, ms, label = "Gemini request") {
       ms
     );
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  // Always attach a sink so a late settle from `promise` can't crash the process
+  // after Promise.race already chose the timeout winner.
+  const guarded = Promise.resolve(promise).catch((err) => {
+    throw err;
+  });
+  return Promise.race([guarded, timeout]).finally(() => {
+    clearTimeout(timer);
+    Promise.resolve(promise).catch(() => {});
+  });
 }
 
 async function generateOnce(model, parts, config, timeoutMs) {

@@ -185,7 +185,8 @@ async function generateBatch(body, batchSlides, batchLabel) {
     return await generateBatchGemini(body, batchSlides, batchLabel);
   } catch (err) {
     const rate = inspectRateLimitError(err);
-    if (!hasGroqLlm() || !(rate.isHardFault || rate.isRateLimit)) throw err;
+    // Any Gemini failure (404 model ids, 503 demand, quota, etc.) → Groq when available
+    if (!hasGroqLlm()) throw err;
     console.warn(
       "[generate-script] Gemini unavailable — falling back to Groq LLM:",
       rate.message.slice(0, 160)
@@ -250,7 +251,7 @@ async function regenerateOne(body) {
     return await regenerateOneGemini(body);
   } catch (err) {
     const rate = inspectRateLimitError(err);
-    if (!hasGroqLlm() || !(rate.isHardFault || rate.isRateLimit)) throw err;
+    if (!hasGroqLlm()) throw err;
     console.warn(
       "[generate-script] Gemini regenerate unavailable — falling back to Groq LLM:",
       rate.message.slice(0, 160)
