@@ -13,11 +13,13 @@ import {
   setCurrentSlideIndex,
   setGenerating,
   setScriptSlides,
+  setSlideExcluded,
   setTone,
   slideDisplaySrc,
   slideThumbSrc,
   slidesForApi,
   totalEstimatedSeconds,
+  activeScriptSlides,
   updateSlideFromRegen,
   updateSlideScript,
   updateSetup,
@@ -53,6 +55,8 @@ const regenRow = document.getElementById("regen-row");
 const regenInput = document.getElementById("regen-input");
 const mobileMeta = document.getElementById("mobile-meta");
 const btnReset = document.getElementById("btn-reset");
+const btnExclude = document.getElementById("btn-exclude");
+const excludeNote = document.getElementById("exclude-note");
 const rateLimitRoot = document.getElementById("rate-limit-dash");
 const rateLimitDash = rateLimitRoot
   ? new RateLimitDashboard(rateLimitRoot)
@@ -77,15 +81,22 @@ let audioEl = null;
 let generationAbort = null;
 
 function mapScripts(slides) {
-  return slides.map((s) => ({
-    n: s.n,
-    script: s.script,
-    seconds: s.seconds,
-    tip: s.tip,
-    originalScript: s.script,
-    originalSeconds: s.seconds,
-    originalTip: s.tip,
-  }));
+  const prevByN = new Map(
+    (getState().scriptSlides || []).map((s) => [Number(s.n), s])
+  );
+  return slides.map((s) => {
+    const prev = prevByN.get(Number(s.n));
+    return {
+      n: s.n,
+      script: s.script,
+      seconds: s.seconds,
+      tip: s.tip,
+      originalScript: s.script,
+      originalSeconds: s.seconds,
+      originalTip: s.tip,
+      excluded: Boolean(prev?.excluded),
+    };
+  });
 }
 
 function abortGenerationPipeline() {
@@ -245,15 +256,48 @@ function paintScriptImmediate() {
   const current = state.scriptSlides[state.currentSlideIndex] || state.scriptSlides[0];
   if (!current) return;
   const deckSlide = state.slides.find((s) => s.n === current.n);
+  const activeCount = activeScriptSlides().length;
+  const totalCount = state.scriptSlides.length;
 
   deckTitle.textContent = state.deckTitle;
-  timeEstimate.textContent = `≈ ${formatTime(totalEstimatedSeconds())} / ${formatTime(state.setup.targetMinutes * 60)}`;
+  timeEstimate.textContent = `≈ ${formatTime(totalEstimatedSeconds())} / ${formatTime(state.setup.targetMinutes * 60)} · ${activeCount}/${totalCount} slides`;
   scriptArea.value = current.script || "";
   tip.textContent = current.tip || "";
-  mobileMeta.textContent = `Slide ${current.n} · ${current.seconds}s`;
+  mobileMeta.textContent = `Slide ${current.n} · ${current.seconds}s${
+    current.excluded ? " · skipped" : ""
+  }`;
   if (deckSlide) {
     slideImg.src = slideDisplaySrc(deckSlide);
     slideImg.alt = `Slide ${current.n}`;
+  }
+  studio.classList.toggle("slide-excluded", Boolean(current.excluded));
+  if (btnExclude) {
+    btnExclude.textContent = current.excluded
+      ? "Add back to pitch"
+      : "Remove from pitch";
+    btnExclude.classList.toggle("is-restore", Boolean(current.excluded));
+    const onlyActive = !current.excluded && activeCount <= 1;
+    btnExclude.disabled = onlyActive;
+    btnExclude.title = onlyActive
+      ? "Keep at least one slide in the pitch"
+      : current.excluded
+        ? "Include this slide in rehearsal again"
+        : "Skip this slide during rehearsal";
+  }
+  if (excludeNote) {
+    if (current.excluded) {
+      excludeNote.textContent =
+        "Removed from pitch — it won’t appear in rehearsal. You can add it back anytime.";
+      excludeNote.classList.remove("hidden");
+    } else if (activeCount < totalCount) {
+      excludeNote.textContent = `${totalCount - activeCount} slide${
+        totalCount - activeCount === 1 ? "" : "s"
+      } skipped for rehearsal.`;
+      excludeNote.classList.remove("hidden");
+    } else {
+      excludeNote.textContent = "";
+      excludeNote.classList.add("hidden");
+    }
   }
   btnReset.disabled =
     current.script === current.originalScript && current.tip === current.originalTip;
@@ -272,7 +316,9 @@ function renderRailLazy() {
     const thumb = state.slides.find((d) => d.n === s.n);
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = `rail-item${i === state.currentSlideIndex ? " active" : ""}`;
+    btn.className = `rail-item${i === state.currentSlideIndex ? " active" : ""}${
+      s.excluded ? " excluded" : ""
+    }`;
     const img = document.createElement("img");
     img.alt = "";
     img.loading = "lazy";
@@ -280,7 +326,9 @@ function renderRailLazy() {
     img.src = slideThumbSrc(thumb);
     const meta = document.createElement("div");
     meta.className = "rail-meta";
-    meta.innerHTML = `<div>${s.n}</div><div class="muted">${s.seconds}s</div>`;
+    meta.innerHTML = `<div>${s.n}${
+      s.excluded ? ' <span class="rail-skip">skip</span>' : ""
+    }</div><div class="muted">${s.seconds}s</div>`;
     btn.appendChild(img);
     btn.appendChild(meta);
     btn.addEventListener("click", () => {
@@ -427,7 +475,9 @@ scriptArea.addEventListener("input", () => {
   if (!current) return;
   updateSlideScript(current.n, scriptArea.value);
   autoGrow(scriptArea);
-  timeEstimate.textContent = `≈ ${formatTime(totalEstimatedSeconds())} / ${formatTime(state.setup.targetMinutes * 60)}`;
+  const activeCount = activeScriptSlides().length;
+  const totalCount = state.scriptSlides.length;
+  timeEstimate.textContent = `≈ ${formatTime(totalEstimatedSeconds())} / ${formatTime(state.setup.targetMinutes * 60)} · ${activeCount}/${totalCount} slides`;
   btnReset.disabled = false;
 });
 
@@ -510,9 +560,30 @@ btnReset.addEventListener("click", () => {
   render();
 });
 
+btnExclude?.addEventListener("click", () => {
+  const state = getState();
+  const current = state.scriptSlides[state.currentSlideIndex];
+  if (!current) return;
+  const result = setSlideExcluded(current.n, !current.excluded);
+  if (!result.ok) {
+    toast(result.error || "Could not update slide.");
+    return;
+  }
+  toast(
+    current.excluded
+      ? `Slide ${current.n} added back to the pitch.`
+      : `Slide ${current.n} removed from the pitch.`
+  );
+  render();
+});
+
 document.getElementById("btn-copy").addEventListener("click", async () => {
-  const text = getState()
-    .scriptSlides.map((s) => `— Slide ${s.n} (${s.seconds}s) —\n${s.script}`)
+  const slides = getState().scriptSlides;
+  const text = slides
+    .map((s) => {
+      const tag = s.excluded ? "skipped" : `${s.seconds}s`;
+      return `— Slide ${s.n} (${tag}) —\n${s.script}`;
+    })
     .join("\n\n");
   try {
     await navigator.clipboard.writeText(text);
@@ -711,6 +782,11 @@ function closePaceTuner() {
 
 document.getElementById("btn-rehearse").addEventListener("click", () => {
   if (!hasScript()) return;
+  const active = activeScriptSlides();
+  if (!active.length) {
+    toast("Add at least one slide back to the pitch before rehearsing.");
+    return;
+  }
   openPaceTuner();
 });
 

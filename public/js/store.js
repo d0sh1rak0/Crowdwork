@@ -241,8 +241,39 @@ export function resetSlideToOriginal(n) {
   });
 }
 
+/** Slides that will actually run in rehearsal (not soft-excluded). */
+export function activeScriptSlides() {
+  return state.scriptSlides.filter((s) => !s.excluded);
+}
+
+/**
+ * Soft-exclude a slide from the pitch without deleting its script.
+ * Refuses if it would leave zero active slides.
+ * @returns {{ ok: boolean, error?: string }}
+ */
+export function setSlideExcluded(n, excluded) {
+  const wantOut = Boolean(excluded);
+  const target = state.scriptSlides.find((s) => s.n === n);
+  if (!target) return { ok: false, error: "Slide not found." };
+  if (wantOut && !target.excluded) {
+    const activeCount = state.scriptSlides.filter((s) => !s.excluded).length;
+    if (activeCount <= 1) {
+      return { ok: false, error: "Keep at least one slide in the pitch." };
+    }
+  }
+  set({
+    scriptSlides: state.scriptSlides.map((s) =>
+      s.n === n ? { ...s, excluded: wantOut } : s
+    ),
+  });
+  return { ok: true };
+}
+
 export function totalEstimatedSeconds() {
-  return state.scriptSlides.reduce((sum, s) => sum + s.seconds, 0);
+  return state.scriptSlides.reduce(
+    (sum, s) => sum + (s.excluded ? 0 : Number(s.seconds) || 0),
+    0
+  );
 }
 
 export function setTone(tone) {

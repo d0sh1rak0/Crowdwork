@@ -490,6 +490,41 @@ a:hover {
   border-color: var(--amber);
   background: color-mix(in srgb, var(--amber) 10%, transparent);
 }
+.rail-item.excluded {
+  opacity: 0.48;
+}
+.rail-item.excluded img {
+  filter: grayscale(0.7);
+}
+.rail-item.excluded.active {
+  opacity: 0.85;
+  border-color: color-mix(in srgb, var(--muted) 70%, var(--amber));
+}
+.rail-skip {
+  display: inline-block;
+  margin-left: 0.2rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.exclude-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.studio.slide-excluded .slide-view,
+.studio.slide-excluded .script-area {
+  opacity: 0.72;
+}
+#btn-exclude.is-restore {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--border));
+  color: var(--amber);
+}
 .rail-item img {
   width: 5rem;
   height: 3rem;

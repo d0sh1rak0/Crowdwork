@@ -306,6 +306,7 @@ function applyParsedScript() {
         originalScript: b.text,
         originalSeconds: seconds,
         originalTip: "Keep it conversational — look up between beats.",
+        excluded: false,
       };
     })
   );

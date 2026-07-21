@@ -23,6 +23,7 @@ import {
   setObjections,
   setRehearsalReport,
   updateSetup,
+  activeScriptSlides,
 } from "./store.js";
 import { detectFillers, fillerTotal, formatTime, wordCount } from "./utils.js";
 
@@ -70,6 +71,8 @@ let audience = null;
 let attentionSnapshot = null;
 let heckleAudio = null;
 let heckleInFlight = false;
+/** Active (non-excluded) slides for this rehearsal run */
+let pitchSlides = [];
 let hesitationApplied = false;
 let liveTranscriptParts = [];
 let unsubPacing = null;
@@ -90,7 +93,7 @@ function showControls() {
 /** Whisper bias: distinctive deck terms so product names stick (not full-script echo) */
 function whisperPromptForSlide() {
   const s = state();
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   const script = String(current?.script || "");
   const title = String(s.deckTitle || "");
   const recent = String(transcripts[index] || "")
@@ -249,7 +252,12 @@ if (hecklersRunEl) {
 
 async function boot() {
   const s = state();
-  if (!hasScript() || !s.slides.length) {
+  pitchSlides = activeScriptSlides();
+  if (!pitchSlides.length) {
+    navigateSafely("/script", { replace: true });
+    return;
+  }
+  if (!s.slides.length) {
     navigateSafely("/", { replace: true });
     return;
   }
@@ -323,7 +331,7 @@ async function boot() {
     audioStream = new MediaStream(mediaStream.getAudioTracks());
   }
 
-  for (let i = 0; i < s.scriptSlides.length; i++) {
+  for (let i = 0; i < pitchSlides.length; i++) {
     slideTimes[i] = 0;
     transcripts[i] = "";
   }
@@ -528,9 +536,9 @@ function processTranscriptChunk(text, slideIndexHint) {
 function maybeAutoAdvanceSlide() {
   if (phase !== "running" || paused || autoAdvanceLock) return;
   const s = state();
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   if (!current) return;
-  if (index >= s.scriptSlides.length - 1) return; // never auto-finish
+  if (index >= pitchSlides.length - 1) return; // never auto-finish
 
   const ready = shouldAutoAdvanceSlide({
     slideElapsed,
@@ -580,7 +588,7 @@ async function fireHeckleStrike(silenceSeconds) {
   if (heckleInFlight || phase !== "running") return;
   heckleInFlight = true;
   const s = state();
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   try {
     const live = vocalMetricsService.getSnapshot();
     const payload = await requestHeckle({
@@ -638,7 +646,7 @@ function renderScriptStack() {
   if (!stack) return;
   const s = state();
   stack.innerHTML = "";
-  s.scriptSlides.forEach((slide, i) => {
+  pitchSlides.forEach((slide, i) => {
     const card = document.createElement("button");
     card.type = "button";
     card.className = `script-card${i === index ? " active" : ""}${
@@ -660,7 +668,7 @@ function renderScriptStack() {
 async function jumpToSlide(targetIndex) {
   if (phase !== "running") return;
   const s = state();
-  if (targetIndex < 0 || targetIndex >= s.scriptSlides.length) return;
+  if (targetIndex < 0 || targetIndex >= pitchSlides.length) return;
   if (targetIndex === index) return;
   await flushTranscript();
   slideTimes[index] = slideElapsed;
@@ -701,7 +709,7 @@ function startTimers() {
 function updateTimers() {
   const s = state();
   const target = s.setup.targetMinutes * 60;
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   timerTotal.textContent = `${formatTime(elapsed)} / ${formatTime(target)}${
     paused ? "  Paused" : ""
   }`;
@@ -713,7 +721,7 @@ function updateTimers() {
   budgetLabel.textContent = `Slide ${current.n} · ${formatTime(slideElapsed)} / ${formatTime(current.seconds)}`;
   // Pulse Next when the slide budget is mostly spent
   if (btnNext) {
-    const onLast = index >= s.scriptSlides.length - 1;
+    const onLast = index >= pitchSlides.length - 1;
     btnNext.classList.toggle("is-ready", ratio >= 0.7 && !onLast);
   }
   // Timing gate for intelligent auto-advance (script progress checked on STT chunks)
@@ -722,12 +730,12 @@ function updateTimers() {
 
 function renderSlide() {
   const s = state();
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   const deck = s.slides.find((d) => d.n === current.n);
   stageImg.src = deck?.imageDisplay || "";
   stageScript.textContent = current.script;
   document.getElementById("btn-prev").disabled = index === 0;
-  const onLast = index >= s.scriptSlides.length - 1;
+  const onLast = index >= pitchSlides.length - 1;
   if (btnNext) {
     const label = btnNext.querySelector(".stage-next-fab-label");
     if (label) label.textContent = onLast ? "Finish pitch" : "Next slide";
@@ -847,7 +855,7 @@ async function goNext() {
   const s = state();
   // Advance immediately — never block the click on Whisper flush (was 2–8s lag)
   slideTimes[index] = slideElapsed;
-  if (index >= s.scriptSlides.length - 1) {
+  if (index >= pitchSlides.length - 1) {
     await finishRun();
     return;
   }
@@ -876,7 +884,7 @@ async function finishRun() {
   slideTimes[index] = slideElapsed;
 
   const s = state();
-  const slides = s.scriptSlides.map((slide, i) => ({
+  const slides = pitchSlides.map((slide, i) => ({
     n: slide.n,
     actualSeconds: Math.round(slideTimes[i] || 0),
     transcript: transcripts[i] || "",
@@ -905,7 +913,7 @@ async function finishRun() {
     fillerCounts: mergedFillers,
     fillerTotal: fillerTotal(mergedFillers),
     slidesOverBudget: slides.filter(
-      (r, i) => r.actualSeconds > s.scriptSlides[i].seconds
+      (r, i) => r.actualSeconds > pitchSlides[i].seconds
     ).length,
     slides,
     speakingSeconds,
@@ -962,7 +970,7 @@ function showReport(report) {
 
   const maxBar = Math.max(
     ...report.slides.map((r, i) =>
-      Math.max(r.actualSeconds, s.scriptSlides[i]?.seconds || 0)
+      Math.max(r.actualSeconds, pitchSlides[i]?.seconds || 0)
     ),
     1
   );
@@ -970,7 +978,7 @@ function showReport(report) {
   const bars = document.getElementById("timing-bars");
   bars.innerHTML = "";
   report.slides.forEach((r, i) => {
-    const target = s.scriptSlides[i]?.seconds || 0;
+    const target = pitchSlides[i]?.seconds || 0;
     const over = r.actualSeconds > target;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1008,7 +1016,7 @@ function showSlideDetail(n) {
   const s = state();
   const report = s.rehearsalReport;
   const result = report.slides.find((x) => x.n === n);
-  const script = s.scriptSlides.find((x) => x.n === n);
+  const script = pitchSlides.find((x) => x.n === n);
   const deck = s.slides.find((x) => x.n === n);
   const el = document.getElementById("slide-detail");
   el.classList.remove("hidden");
@@ -1044,10 +1052,10 @@ async function loadCoach(report) {
       language: s.resolvedLanguage,
       slides: report.slides.map((r, i) => ({
         n: r.n,
-        script: s.scriptSlides[i]?.script || "",
+        script: pitchSlides[i]?.script || "",
         transcript: r.transcript,
         actualSeconds: r.actualSeconds,
-        targetSeconds: s.scriptSlides[i]?.seconds || 0,
+        targetSeconds: pitchSlides[i]?.seconds || 0,
       })),
       attention: att || undefined,
       wpm: report.wpm,
@@ -1093,7 +1101,7 @@ async function loadObjections(report) {
       language: s.resolvedLanguage,
       slides: report.slides.map((r, i) => ({
         n: r.n,
-        script: s.scriptSlides[i]?.script || "",
+        script: pitchSlides[i]?.script || "",
         transcript: r.transcript,
       })),
     });
