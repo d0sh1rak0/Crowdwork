@@ -154,13 +154,13 @@ class VocalMetricsService {
 
     if (wpm >= this.rushedWpm) {
       deliveryState = "RUSHED";
-      if (now - this._lastRushedAt > 4000) {
+      if (now - this._lastRushedAt > 6000) {
         this._lastRushedAt = now;
         this._handlers.onRushed?.({ wpm });
       }
-    } else if (this._isMonotone()) {
+    } else if (this._isMonotone(wpm)) {
       deliveryState = "MONOTONE";
-      if (now - this._lastMonotoneAt > 5000) {
+      if (now - this._lastMonotoneAt > 12000) {
         this._lastMonotoneAt = now;
         this._handlers.onMonotone?.({});
       }
@@ -214,41 +214,41 @@ class VocalMetricsService {
     return Math.round((words / windowSeconds) * 60);
   }
 
-  _isMonotone() {
-    // Need several recent chunks with similar length + regular spacing
-    if (this.chunkMeta.length < 4) return false;
-    const recent = this.chunkMeta.slice(-6);
-    const wordLens = recent.map((c) => c.words);
+  _isMonotone(wpm = 0) {
+    // Whisper slices arrive on a fixed cadence — do NOT treat chunk timing as
+    // speaker rhythm (that falsely flags every steady talker as monotone).
+    // Only flag when lexical shape is extremely flat over a long stretch,
+    // and never while the speaker is already in a healthy pace band.
+    if (this.chunkMeta.length < 10) return false;
+    const snap = pacingTelemetry.getSnapshot?.() || {};
+    const healthyMin = snap.healthyMin ?? derivePaceBands(DEFAULT_PACE_TARGET_WPM).healthyMin;
+    const healthyMax = snap.healthyMax ?? derivePaceBands(DEFAULT_PACE_TARGET_WPM).healthyMax;
+    if (wpm >= healthyMin && wpm <= healthyMax) return false;
+    // Soft shoulders: also skip while PacingTelemetry already says healthy/idle
+    if (snap.pacingBand === "healthy" || snap.pacingBand === "idle") return false;
+
+    const recent = this.chunkMeta.slice(-12);
+    const wordLens = recent.map((c) => c.words).filter((n) => n > 0);
+    if (wordLens.length < 8) return false;
     const mean =
       wordLens.reduce((a, b) => a + b, 0) / Math.max(1, wordLens.length);
-    if (mean < 3) return false;
+    if (mean < 5) return false;
     const variance =
       wordLens.reduce((a, w) => a + (w - mean) ** 2, 0) / wordLens.length;
     const std = Math.sqrt(variance);
 
-    // Interval regularity
-    const intervals = [];
-    for (let i = 1; i < recent.length; i++) {
-      intervals.push(recent[i].t - recent[i - 1].t);
-    }
-    const iMean =
-      intervals.reduce((a, b) => a + b, 0) / Math.max(1, intervals.length);
-    const iVar =
-      intervals.reduce((a, v) => a + (v - iMean) ** 2, 0) /
-      Math.max(1, intervals.length);
-    const iStd = Math.sqrt(iVar);
-
-    // Flat vocabulary: similar avg word length
-    const aw = recent.map((c) => c.avgWordLen);
+    // Flat vocabulary: similar avg word length across many chunks
+    const aw = recent.map((c) => c.avgWordLen).filter((n) => n > 0);
+    if (aw.length < 8) return false;
     const awMean = aw.reduce((a, b) => a + b, 0) / aw.length;
     const awStd = Math.sqrt(
       aw.reduce((a, v) => a + (v - awMean) ** 2, 0) / aw.length
     );
 
-    const flatLength = std / mean < 0.22;
-    const regularPace = iMean > 0 && iStd / iMean < 0.28;
-    const flatLexicon = awStd < 0.55;
-    return flatLength && regularPace && flatLexicon;
+    // Much stricter than before — only near-robotic sameness
+    const flatLength = std / mean < 0.12;
+    const flatLexicon = awStd < 0.28;
+    return flatLength && flatLexicon;
   }
 
   _evaluatePause() {

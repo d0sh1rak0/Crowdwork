@@ -509,9 +509,9 @@ function updateMetricHud(m) {
   if (pacing.pacingBand === "rush" || m.state === "RUSHED")
     setMetricState("Rushed", "danger");
   else if (pacing.pacingBand === "slow") setMetricState("Too slow", "warn");
-  else if (m.state === "MONOTONE") setMetricState("Monotone", "warn");
-  else if (pacing.pausing) setMetricState("Pause", "warn");
   else if (pacing.pacingBand === "healthy") setMetricState("Steady", "steady");
+  else if (pacing.pausing) setMetricState("Pause", "warn");
+  else if (m.state === "MONOTONE") setMetricState("Monotone", "warn");
   else if (pacing.clarity === "clear") setMetricState("Clear", "steady");
   else setMetricState("Steady", "steady");
 }

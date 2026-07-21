@@ -27,9 +27,13 @@ const HEALTHY_MAX = DEFAULT_BANDS.healthyMax;
 const RUSH_WPM = DEFAULT_BANDS.rushWpm;
 const SLOW_WPM = DEFAULT_BANDS.slowWpm;
 /** Don't hammer rush/slow penalties — room should feel coachable */
-const RUSH_COOLDOWN_MS = 6500;
-const SLOW_COOLDOWN_MS = 7000;
-const STEADY_COOLDOWN_MS = 4500;
+const RUSH_COOLDOWN_MS = 9000;
+const SLOW_COOLDOWN_MS = 9000;
+const STEADY_COOLDOWN_MS = 4000;
+/** Must stay out-of-band this long before we fire rush/slow (kills STT flicker) */
+const BAND_DWELL_MS = 2800;
+/** EMA blend for displayed / judged WPM (higher = stickier) */
+const WPM_SMOOTH = 0.55;
 
 /** Placeholder / non-lexical Whisper junk */
 const UNCLEAR_RE =
@@ -111,6 +115,9 @@ class PacingTelemetry {
     this._lastRushAt = 0;
     this._lastSlowAt = 0;
     this._healthySince = null;
+    this._rushSince = null;
+    this._slowSince = null;
+    this._smoothedWpm = 0;
     /** Last ingested transcript packet (for cumulative-delta subtraction) */
     this._lastPacketText = "";
     /** Dedup guard — ignore identical packet re-registered within a short window */
@@ -303,12 +310,27 @@ class PacingTelemetry {
   getWindowWpm(opts = {}) {
     const now = Date.now();
     this._pruneWords(now);
-    if (!this.wordEvents.length) return 0;
+    if (!this.wordEvents.length) {
+      this._smoothedWpm = 0;
+      return 0;
+    }
 
     const newWords = this.wordEvents.reduce((a, e) => a + e.n, 0);
-    // Fixed 5s rolling buffer denominator — never use a tiny fractional span
-    const windowSeconds = Math.max(MIN_WINDOW_SEC, WPM_WINDOW_MS / 1000);
-    const finalWPM = Math.round((newWords / windowSeconds) * 60);
+    // Use elapsed speech in-window when the buffer isn't full yet, so the
+    // first few seconds of normal talk aren't judged against an empty 5s pad.
+    const oldest = this.wordEvents[0]?.t ?? now;
+    const elapsedSec = Math.max(MIN_WINDOW_SEC, (now - oldest) / 1000);
+    const windowSeconds = Math.min(WPM_WINDOW_MS / 1000, elapsedSec);
+    const rawWpm = Math.round((newWords / windowSeconds) * 60);
+
+    // EMA softens Whisper chunk spikes (big burst → rush, gap → slow)
+    if (!this._smoothedWpm) this._smoothedWpm = rawWpm;
+    else {
+      this._smoothedWpm = Math.round(
+        WPM_SMOOTH * this._smoothedWpm + (1 - WPM_SMOOTH) * rawWpm
+      );
+    }
+    const finalWPM = this._smoothedWpm;
 
     if (opts.log) {
       console.log(
@@ -316,7 +338,9 @@ class PacingTelemetry {
         newWords,
         "| Time Windows:",
         windowSeconds,
-        "| Calculated Result WPM:",
+        "| Raw WPM:",
+        rawWpm,
+        "| Smoothed WPM:",
         finalWPM
       );
     }
@@ -336,15 +360,24 @@ class PacingTelemetry {
     const healthyMax = this.healthyMax;
 
     // Need enough lexical mass before judging slow/rush
-    if (wordsInWindow < 6 && wpm < rushWpm) {
+    if (wordsInWindow < 8 && wpm < rushWpm) {
       this.pacingBand = "idle";
       this._healthySince = null;
+      this._rushSince = null;
+      this._slowSince = null;
       return;
     }
 
     if (wpm >= rushWpm) {
-      this.pacingBand = "rush";
+      this._slowSince = null;
       this._healthySince = null;
+      if (this._rushSince == null) this._rushSince = now;
+      // Dwell — ignore single chunk spikes
+      if (now - this._rushSince < BAND_DWELL_MS) {
+        this.pacingBand = wordsInWindow >= 12 ? "rush" : this.pacingBand;
+        return;
+      }
+      this.pacingBand = "rush";
       if (now - this._lastRushAt > RUSH_COOLDOWN_MS) {
         this._lastRushAt = now;
         this._handlers.onRushing?.({ wpm });
@@ -353,9 +386,15 @@ class PacingTelemetry {
       return;
     }
 
-    if (wpm > 0 && wpm < slowWpm && wordsInWindow >= 10) {
-      this.pacingBand = "slow";
+    if (wpm > 0 && wpm < slowWpm && wordsInWindow >= 12) {
+      this._rushSince = null;
       this._healthySince = null;
+      if (this._slowSince == null) this._slowSince = now;
+      if (now - this._slowSince < BAND_DWELL_MS) {
+        this.pacingBand = "slow";
+        return;
+      }
+      this.pacingBand = "slow";
       if (now - this._lastSlowAt > SLOW_COOLDOWN_MS) {
         this._lastSlowAt = now;
         this._handlers.onTooSlow?.({ wpm });
@@ -364,12 +403,15 @@ class PacingTelemetry {
       return;
     }
 
+    this._rushSince = null;
+    this._slowSince = null;
+
     if (wpm >= healthyMin && wpm <= healthyMax) {
       this.pacingBand = "healthy";
       if (this._healthySince == null) this._healthySince = now;
       // Sustained healthy band — reward more often than we punish
       if (
-        now - this._healthySince >= 3000 &&
+        now - this._healthySince >= 2500 &&
         now - this._lastSteadyAt > STEADY_COOLDOWN_MS
       ) {
         this._lastSteadyAt = now;
@@ -379,6 +421,7 @@ class PacingTelemetry {
       return;
     }
 
+    // Soft shoulders between healthy and extreme — treat as idle, not punish
     this.pacingBand = fromSpeech ? "idle" : this.pacingBand;
     if (wpm < healthyMin || wpm > healthyMax) {
       this._healthySince = null;
@@ -391,9 +434,12 @@ class PacingTelemetry {
     this._pauseLatched = false;
     this.wordEvents = [];
     this.wpm = 0;
+    this._smoothedWpm = 0;
     this.pacingBand = "idle";
     this.clarity = "unknown";
     this._healthySince = null;
+    this._rushSince = null;
+    this._slowSince = null;
     this._lastPacketText = "";
     this._lastPacketAt = 0;
     this._windowStartedAt = null;

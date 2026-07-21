@@ -1,13 +1,14 @@
 /**
  * Shared speaking-pace targets for rehearsal scoring + the pre-start tuner.
  *
- * Defaults sit higher than classic “broadcast” 120–150 so a brisk pitch
- * still lands in the healthy / steady band.
+ * Bands are intentionally wide: STT arrives in uneven chunks, so a narrow
+ * “coach” corridor reads as always-too-slow / always-too-fast. Only extreme
+ * drag or sprint should leave the healthy / steady zone.
  */
 
-export const DEFAULT_PACE_TARGET_WPM = 155;
-export const PACE_TARGET_MIN = 120;
-export const PACE_TARGET_MAX = 200;
+export const DEFAULT_PACE_TARGET_WPM = 150;
+export const PACE_TARGET_MIN = 110;
+export const PACE_TARGET_MAX = 195;
 /** Approximate natural rate of OpenAI / browser TTS for playbackRate mapping */
 export const TTS_NATURAL_WPM = 150;
 
@@ -19,11 +20,12 @@ export function derivePaceBands(targetWpm = DEFAULT_PACE_TARGET_WPM) {
   const target = clampPaceTarget(targetWpm);
   return {
     targetWpm: target,
-    // Wide-but-not-infinite coachable band
-    healthyMin: Math.max(95, target - 28),
-    healthyMax: Math.min(215, target + 32),
-    rushWpm: Math.min(240, target + 48),
-    slowWpm: Math.max(80, target - 42),
+    // Broad coachable corridor — conversational pitch lives here
+    healthyMin: Math.max(95, target - 45),
+    healthyMax: Math.min(210, target + 50),
+    // Extreme edges only (leave a soft buffer outside healthy)
+    rushWpm: Math.min(245, target + 75),
+    slowWpm: Math.max(75, target - 60),
   };
 }
 
@@ -46,10 +48,10 @@ export function playbackRateForWpm(targetWpm) {
 export function localPaceRecommendation(ctx = {}) {
   const tone = String(ctx.tone || "confident").toLowerCase();
   let target = DEFAULT_PACE_TARGET_WPM;
-  if (tone === "energetic") target = 168;
-  else if (tone === "friendly") target = 150;
-  else if (tone === "formal") target = 142;
-  else if (tone === "confident") target = 158;
+  if (tone === "energetic") target = 162;
+  else if (tone === "friendly") target = 145;
+  else if (tone === "formal") target = 138;
+  else if (tone === "confident") target = 152;
 
   const purpose = String(ctx.purpose || "").toLowerCase();
   if (/demo|pitch|investor|sales/.test(purpose)) target += 4;
@@ -69,7 +71,7 @@ export function localPaceRecommendation(ctx = {}) {
         ? "For an energetic delivery, aim brisk — keep clarity, don’t race."
         : tone === "formal"
           ? "Formal rooms reward measured pace with room to breathe."
-          : "A slightly faster steady pace keeps attention without sounding rushed.",
+          : "A steady conversational pace keeps attention without sounding rushed.",
     healthyMin: bands.healthyMin,
     healthyMax: bands.healthyMax,
     rushWpm: bands.rushWpm,
@@ -85,25 +87,25 @@ export function localPaceVerdict(chosenWpm, recommendedWpm) {
   const chosen = clampPaceTarget(chosenWpm);
   const rec = clampPaceTarget(recommendedWpm);
   const delta = chosen - rec;
-  if (Math.abs(delta) <= 8) {
+  if (Math.abs(delta) <= 12) {
     return {
       verdict: "similar",
       message: `Near the AI pick (${rec} wpm) — a solid steady target for this pitch.`,
     };
   }
-  if (delta > 8 && delta <= 22) {
+  if (delta > 12 && delta <= 28) {
     return {
       verdict: "better",
       message: `A bit faster than ${rec} wpm can hold attention — stay clear on key numbers.`,
     };
   }
-  if (delta < -8 && delta >= -22) {
+  if (delta < -12 && delta >= -28) {
     return {
       verdict: "worse",
       message: `Slower than the AI pick (${rec} wpm) may feel flat for this room — try nudging up.`,
     };
   }
-  if (delta > 22) {
+  if (delta > 28) {
     return {
       verdict: "worse",
       message: `Much faster than ${rec} wpm risks sounding rushed — the crowd will punish unclear words.`,
