@@ -19,11 +19,11 @@ export function derivePaceBands(targetWpm = DEFAULT_PACE_TARGET_WPM) {
   const target = clampPaceTarget(targetWpm);
   return {
     targetWpm: target,
-    // Wide coachable band — natural pitch variation should stay "steady"
-    healthyMin: Math.max(90, target - 35),
-    healthyMax: Math.min(220, target + 40),
-    rushWpm: Math.min(250, target + 55),
-    slowWpm: Math.max(75, target - 50),
+    // Wide-but-not-infinite coachable band
+    healthyMin: Math.max(95, target - 28),
+    healthyMax: Math.min(215, target + 32),
+    rushWpm: Math.min(240, target + 48),
+    slowWpm: Math.max(80, target - 42),
   };
 }
 

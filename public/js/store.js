@@ -21,6 +21,8 @@ const defaultSetup = () => ({
   paceConfirmed: false,
   /** Investor heckles on dead air — optional for calmer practice */
   hecklersEnabled: true,
+  /** Hide on-stage script so the speaker presents from memory */
+  memorizeMode: false,
 });
 
 function blank() {

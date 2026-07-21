@@ -602,6 +602,7 @@ const paceVerdict = document.getElementById("pace-verdict");
 const pacePreviewBtn = document.getElementById("pace-preview");
 const paceStartBtn = document.getElementById("pace-start");
 const paceCancelBtn = document.getElementById("pace-cancel");
+const memorizeModeEl = document.getElementById("memorize-mode");
 
 let paceRecommendedWpm = DEFAULT_PACE_TARGET_WPM;
 let pacePreviewAudio = null;
@@ -731,6 +732,9 @@ async function openPaceTuner() {
       : paceRecommendedWpm
   );
   syncPaceSliderUi(initial);
+  if (memorizeModeEl) {
+    memorizeModeEl.checked = Boolean(state.setup.memorizeMode);
+  }
   paceAiRec.innerHTML =
     "Asking AI for a steady pace that fits this pitch…";
   setPaceVerdict(
@@ -798,9 +802,14 @@ paceStartBtn?.addEventListener("click", () => {
     paceTargetWpm: target,
     paceRecommendedWpm,
     paceConfirmed: true,
+    memorizeMode: Boolean(memorizeModeEl?.checked),
   });
   closePaceTuner();
   navigateSafely("/rehearse");
+});
+
+memorizeModeEl?.addEventListener("change", () => {
+  updateSetup({ memorizeMode: Boolean(memorizeModeEl.checked) });
 });
 
 paceSlider?.addEventListener("input", () => {

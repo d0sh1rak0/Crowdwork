@@ -16,7 +16,7 @@ import {
   derivePaceBands,
 } from "./paceConfig.js";
 
-const PAUSE_THRESHOLD_MS = 4800;
+const PAUSE_THRESHOLD_MS = 3600;
 /** Stable rolling buffer used as the WPM denominator */
 const WPM_WINDOW_MS = 5000;
 /** Hard floor so (words / seconds) never explodes on sub-second snaps */
@@ -27,9 +27,9 @@ const HEALTHY_MAX = DEFAULT_BANDS.healthyMax;
 const RUSH_WPM = DEFAULT_BANDS.rushWpm;
 const SLOW_WPM = DEFAULT_BANDS.slowWpm;
 /** Don't hammer rush/slow penalties — room should feel coachable */
-const RUSH_COOLDOWN_MS = 8000;
-const SLOW_COOLDOWN_MS = 9000;
-const STEADY_COOLDOWN_MS = 4000;
+const RUSH_COOLDOWN_MS = 6500;
+const SLOW_COOLDOWN_MS = 7000;
+const STEADY_COOLDOWN_MS = 4500;
 
 /** Placeholder / non-lexical Whisper junk */
 const UNCLEAR_RE =

@@ -30,6 +30,10 @@
           <input id="hecklers-run" type="checkbox" checked />
           <span>Hecklers</span>
         </label>
+        <label class="memorize-run-toggle" for="memorize-run" title="Hide script on stage">
+          <input id="memorize-run" type="checkbox" />
+          <span>Memorize</span>
+        </label>
         <div id="mic-banner" class="mic-banner hidden">
           Pitching without mic / camera — timers only
         </div>
@@ -46,6 +50,15 @@
           </div>
         </aside>
 
+        <!-- Audience faces the pitcher at eye level (top of stage) -->
+        <section id="house" class="house house-top" data-mood="listening" aria-label="Live audience">
+          <div class="house-glow" aria-hidden="true"></div>
+          <div class="house-rail" aria-hidden="true"></div>
+          <p class="house-caption">Your audience</p>
+          <div id="audience-row" class="house-row"></div>
+          <div id="reaction-host" class="house-reactions"></div>
+        </section>
+
         <div class="stage-content pitch-layout">
           <aside class="script-rail" aria-label="Script slides">
             <p class="script-rail-label">Script</p>
@@ -59,6 +72,9 @@
               <p id="budget-label" class="budget-label"></p>
             </div>
             <p id="stage-script" class="stage-script"></p>
+            <p id="memorize-hint" class="memorize-hint hidden" aria-live="polite">
+              Memorize mode — speak from memory. Script is hidden.
+            </p>
           </div>
 
           <div class="pitch-side">
@@ -87,15 +103,6 @@
             </div>
           </div>
         </div>
-
-        <!-- Living house audience — front of the room -->
-        <section id="house" class="house" data-mood="listening" aria-label="Live audience">
-          <div class="house-glow" aria-hidden="true"></div>
-          <div class="house-rail" aria-hidden="true"></div>
-          <p class="house-caption">The room</p>
-          <div id="audience-row" class="house-row"></div>
-          <div id="reaction-host" class="house-reactions"></div>
-        </section>
 
         <div id="controls" class="stage-controls">
           <div class="stage-controls-main">

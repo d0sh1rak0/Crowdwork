@@ -45,6 +45,9 @@ const btnNext = document.getElementById("btn-next");
 const camVideo = document.getElementById("cam-video");
 const camFallback = document.getElementById("cam-fallback");
 const hecklersRunEl = document.getElementById("hecklers-run");
+const memorizeRunEl = document.getElementById("memorize-run");
+const memorizeHint = document.getElementById("memorize-hint");
+const runViewEl = document.getElementById("run-view");
 
 let phase = "boot";
 let index = 0;
@@ -221,11 +224,25 @@ function initAudience() {
     badge.dataset.boss = level.isBoss ? "1" : "0";
   }
   syncHecklerRunToggle();
+  syncMemorizeMode();
 }
 
 function syncHecklerRunToggle() {
   if (!hecklersRunEl) return;
   hecklersRunEl.checked = hecklersAreOn();
+}
+
+function memorizeModeOn() {
+  return Boolean(state().setup?.memorizeMode);
+}
+
+function syncMemorizeMode() {
+  const on = memorizeModeOn();
+  if (memorizeRunEl) memorizeRunEl.checked = on;
+  runViewEl?.classList.toggle("memorize-mode", on);
+  if (memorizeHint) {
+    memorizeHint.classList.toggle("hidden", !on);
+  }
 }
 
 if (hecklersRunEl) {
@@ -245,6 +262,13 @@ if (hecklersRunEl) {
       hesitationApplied = false;
       sessionTimerService.resetSilenceCounter();
     }
+  });
+}
+
+if (memorizeRunEl) {
+  memorizeRunEl.addEventListener("change", () => {
+    updateSetup({ memorizeMode: memorizeRunEl.checked });
+    syncMemorizeMode();
   });
 }
 
@@ -437,7 +461,7 @@ function startVocalMetrics() {
 function decayAttentionMeter(pauseMs) {
   if (phase !== "running" || paused) return;
   audience?.onTextPause(pauseMs);
-  if (pauseMs >= 4800) setMetricState("Pause", "warn");
+  if (pauseMs >= 3600) setMetricState("Pause", "warn");
 }
 
 function onSpeechActivityResumed() {
