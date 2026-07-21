@@ -48,7 +48,7 @@ function wordCount(text) {
 
 class VocalMetricsService {
   constructor() {
-    this.pauseThresholdMs = 3600;
+    this.pauseThresholdMs = 4000;
     this.rushedWpm = derivePaceBands(DEFAULT_PACE_TARGET_WPM).rushWpm;
     this.windowMs = 10000;
     this.fillers = DEFAULT_FILLERS;

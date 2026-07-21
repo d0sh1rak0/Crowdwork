@@ -461,7 +461,7 @@ function startVocalMetrics() {
 function decayAttentionMeter(pauseMs) {
   if (phase !== "running" || paused) return;
   audience?.onTextPause(pauseMs);
-  if (pauseMs >= 3600) setMetricState("Pause", "warn");
+  if (pauseMs >= 4000) setMetricState("Pause", "warn");
 }
 
 function onSpeechActivityResumed() {

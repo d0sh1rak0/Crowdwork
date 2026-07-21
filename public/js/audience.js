@@ -109,11 +109,11 @@ export function createAudienceEngine({
   levelConfig = null,
 }) {
   const level = levelConfig || {
-    startAttention: 78,
-    pauseDecay: 0.95,
-    rushPenalty: 6,
-    fillerPenalty: 6,
-    steadyBonus: 3.5,
+    startAttention: 84,
+    pauseDecay: 0.65,
+    rushPenalty: 5,
+    fillerPenalty: 5,
+    steadyBonus: 4,
     difficultyMult: 1,
   };
   let attention = level.startAttention;
@@ -208,18 +208,18 @@ export function createAudienceEngine({
 
   /** Silence Sentinel — hesitation: soft nudge, not a meter dump */
   function onHesitationWarning() {
-    attention = clamp(attention - 3.5);
+    attention = clamp(attention - 2.5);
     attentionFill.dataset.mood = "drifting";
     attentionLabel.textContent = "Hesitation";
     attentionLabel.dataset.mood = "drifting";
     if (houseEl) houseEl.dataset.mood = "confused";
     members.forEach((m, i) => {
       setPersonMood(m, i % 2 === 0 ? "confused" : "expectant");
-      m.restless = Math.min(14, m.restless + 2);
-      if (i % 2 === 0) m.el.classList.add("on-phone");
+      m.restless = Math.min(14, m.restless + 1);
+      if (i % 3 === 0) m.el.classList.add("on-phone");
     });
     pushReaction("pause", pick(["…", "waiting", "phone?", "hmm"]));
-    roomAudio.setTension(0.5);
+    roomAudio.setTension(0.45);
     renderAttention();
   }
 
@@ -405,11 +405,11 @@ export function createAudienceEngine({
       }
     });
 
-    // Soft ceiling pressure — locked-in rooms still need energy to stay there
-    if (attention >= 92) {
-      attention = clamp(attention - 0.35);
-    } else if (attention >= 85 && mood !== "locked") {
-      attention = clamp(attention - 0.15);
+    // Soft ceiling — don’t pin forever at 100, but don’t bleed while strong
+    if (attention >= 96) {
+      attention = clamp(attention - 0.2);
+    } else if (attention >= 90 && mood === "locked") {
+      attention = clamp(attention - 0.08);
     }
 
     if (mood === "checked" && Math.random() < 0.4) {
@@ -435,24 +435,24 @@ export function createAudienceEngine({
 
   /** Precise text-gap pause from Whisper (≥ pause threshold, throttled ~1/sec). */
   function onTextPause(pauseMs) {
-    if (pauseMs < 3600) return;
+    if (pauseMs < 4000) return;
     if (!pauseLatched) {
       pauseLatched = true;
       events.pauses += 1;
-      attention = clamp(attention - 3);
+      attention = clamp(attention - 2);
       pushReaction("pause", pick(["…", "waiting", "phone check", "go on?"]));
       members.forEach((m, i) => {
-        if (i % 3 === 0) m.el.classList.add("on-phone");
+        if (i % 4 === 0) m.el.classList.add("on-phone");
       });
     } else {
       // Ongoing decay — once per throttled callback (~1/s)
       attention = clamp(attention - level.pauseDecay);
-      if (pauseMs >= 5500 && attention < 55) {
+      if (pauseMs >= 6000 && attention < 55) {
         members.forEach((m) => {
-          if (Math.random() < 0.4) m.el.classList.add("on-phone", "is-bored");
+          if (Math.random() < 0.35) m.el.classList.add("on-phone", "is-bored");
         });
       }
-      if (pauseMs >= 6500 && pauseMs < 6700 && attention < 50) {
+      if (pauseMs >= 7000 && pauseMs < 7200 && attention < 48) {
         triggerGiggleWave(false);
       }
     }
@@ -464,11 +464,11 @@ export function createAudienceEngine({
     if (pauseLatched) {
       pauseLatched = false;
       const now = performance.now();
-      if (now - lastRecoverAt > 2500) {
+      if (now - lastRecoverAt > 2200) {
         lastRecoverAt = now;
         pushReaction("recover");
         roomAudio.hush();
-        attention = clamp(attention + 2.5);
+        attention = clamp(attention + 3);
         members.forEach((m) => {
           m.el.classList.remove("on-phone", "is-bored", "is-look-away");
         });
@@ -550,18 +550,17 @@ export function createAudienceEngine({
     renderAttention();
   }
 
-  /** Confident STT + mic signal — small, throttled (was pinning meter at 100). */
+  /** Confident STT — modest, throttled so the meter doesn’t pin at 100. */
   function onClearSpeech() {
     const now = performance.now();
-    if (now - lastClearBonusAt < 4500) {
-      // Still clear confused faces without pumping the meter
+    if (now - lastClearBonusAt < 3200) {
       members.forEach((m) => {
         m.el.classList.remove("is-confused", "is-arms-crossed");
       });
       return;
     }
     lastClearBonusAt = now;
-    attention = clamp(attention + 1.25);
+    attention = clamp(attention + 2);
     if (houseEl) houseEl.dataset.delivery = "steady";
     members.forEach((m, i) => {
       m.el.classList.remove(
@@ -579,7 +578,7 @@ export function createAudienceEngine({
 
   /** Mic energy but empty / junk STT */
   function onUnclearSpeech() {
-    attention = clamp(attention - 2.5);
+    attention = clamp(attention - 1.5);
     if (houseEl) houseEl.dataset.delivery = "unclear";
     members.forEach((m, i) => {
       if (i % 3 === 0) {
@@ -594,7 +593,7 @@ export function createAudienceEngine({
   }
 
   function onTooSlow(wpm) {
-    attention = clamp(attention - 3.5);
+    attention = clamp(attention - 2.5);
     if (houseEl) houseEl.dataset.delivery = "slow";
     members.forEach((m, i) => {
       m.el.classList.add("is-bored");

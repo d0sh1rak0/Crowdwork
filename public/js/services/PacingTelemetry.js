@@ -16,7 +16,7 @@ import {
   derivePaceBands,
 } from "./paceConfig.js";
 
-const PAUSE_THRESHOLD_MS = 3600;
+const PAUSE_THRESHOLD_MS = 4000;
 /** Stable rolling buffer used as the WPM denominator */
 const WPM_WINDOW_MS = 5000;
 /** Hard floor so (words / seconds) never explodes on sub-second snaps */
