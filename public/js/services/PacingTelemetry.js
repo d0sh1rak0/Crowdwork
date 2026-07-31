@@ -108,6 +108,7 @@ class PacingTelemetry {
       onClearSpeech: null,
       onUnclearSpeech: null,
       onWpm: null,
+      onPauseReward: null,
     };
     this._listeners = new Set();
     this._holdDecay = null;
@@ -118,11 +119,72 @@ class PacingTelemetry {
     this._rushSince = null;
     this._slowSince = null;
     this._smoothedWpm = 0;
+    /** Drill-mode pause reward (e.g. 1-beat / 2s slow-mo) */
+    this._drillPause = null;
+    this._pauseStartedAt = null;
+    this._deliberatePauses = [];
+    this._lastPauseRewardAt = 0;
     /** Last ingested transcript packet (for cumulative-delta subtraction) */
     this._lastPacketText = "";
     /** Dedup guard — ignore identical packet re-registered within a short window */
     this._lastPacketAt = 0;
     this._windowStartedAt = null;
+  }
+
+  /**
+   * Calibrate for a course drill from curriculum telemetry block.
+   * @param {object|null} telemetry
+   */
+  configureDrill(telemetry = null) {
+    this._drillPause = null;
+    this._deliberatePauses = [];
+    this._pauseStartedAt = null;
+    if (!telemetry) return this.getSnapshot();
+
+    if (telemetry.idealWpm?.min != null && telemetry.idealWpm?.max != null) {
+      const mid = Math.round(
+        (Number(telemetry.idealWpm.min) + Number(telemetry.idealWpm.max)) / 2
+      );
+      const target = telemetry.targetWpm != null ? Number(telemetry.targetWpm) : mid;
+      this.targetWpm = target;
+      this.healthyMin = Number(telemetry.idealWpm.min);
+      this.healthyMax = Number(telemetry.idealWpm.max);
+      this.slowWpm = Math.max(40, this.healthyMin - 12);
+      this.rushWpm = this.healthyMax + 25;
+    } else if (telemetry.targetWpm != null) {
+      this.configureFromTarget(Number(telemetry.targetWpm));
+    }
+
+    if (telemetry.pauseRewardSec != null) {
+      const win = telemetry.pauseRewardWindowSec || {};
+      this._drillPause = {
+        targetSec: Number(telemetry.pauseRewardSec),
+        minSec: Number(win.min ?? telemetry.pauseRewardSec * 0.7),
+        maxSec: Number(win.max ?? telemetry.pauseRewardSec * 1.6),
+        xp: Number(telemetry.pauseRewardXp) || 10,
+        label: telemetry.pauseRewardLabel || "Great Pause!",
+      };
+      // Detect shorter intentional pauses than the severe 4s heckle threshold
+      this.pauseThresholdMs = Math.max(
+        600,
+        Math.round((this._drillPause.minSec - 0.15) * 1000)
+      );
+    } else {
+      this.pauseThresholdMs = PAUSE_THRESHOLD_MS;
+    }
+    return this.getSnapshot();
+  }
+
+  clearDrill() {
+    this._drillPause = null;
+    this._deliberatePauses = [];
+    this._pauseStartedAt = null;
+    this.pauseThresholdMs = PAUSE_THRESHOLD_MS;
+    this.configureFromTarget(DEFAULT_PACE_TARGET_WPM);
+  }
+
+  getDeliberatePauses() {
+    return [...this._deliberatePauses];
   }
 
   /**
@@ -150,7 +212,9 @@ class PacingTelemetry {
    * Use when another path already registered the delta packet.
    */
   touchSpeechClock() {
-    this.lastWordTimestamp = Date.now();
+    const now = Date.now();
+    this._finalizeDrillPause(now);
+    this.lastWordTimestamp = now;
     const wasPaused = this._pauseLatched;
     this._pauseLatched = false;
     if (wasPaused) {
@@ -173,7 +237,9 @@ class PacingTelemetry {
    * Only UNIQUE new words are added to the rolling WPM buffer.
    */
   registerSpeechActivity(meta = {}) {
-    this.lastWordTimestamp = Date.now();
+    const now = Date.now();
+    this._finalizeDrillPause(now);
+    this.lastWordTimestamp = now;
     const wasPaused = this._pauseLatched;
     this._pauseLatched = false;
     const text = meta.text || "";
@@ -200,7 +266,6 @@ class PacingTelemetry {
     );
 
     // Identical re-ingest within 750ms (coordinator + metrics dual path) → ignore words
-    const now = this.lastWordTimestamp;
     const isDupPacket =
       normalizeText(text) === this._lastPacketText &&
       now - this._lastPacketAt < 750;
@@ -428,6 +493,29 @@ class PacingTelemetry {
     }
   }
 
+  _finalizeDrillPause(now = Date.now()) {
+    if (this._pauseStartedAt == null) return;
+    const sec = (now - this._pauseStartedAt) / 1000;
+    this._pauseStartedAt = null;
+    if (sec < 0.5) return;
+    this._deliberatePauses.push(sec);
+
+    const drill = this._drillPause;
+    if (!drill) return;
+    if (sec < drill.minSec || sec > drill.maxSec) return;
+    if (now - this._lastPauseRewardAt < 1800) return;
+    this._lastPauseRewardAt = now;
+    const evt = {
+      type: "pause-reward",
+      pauseSec: Math.round(sec * 10) / 10,
+      xp: drill.xp,
+      label: drill.label,
+      at: now,
+    };
+    this._handlers.onPauseReward?.(evt);
+    this._emit(evt);
+  }
+
   startTelemetryLoop(onSeverePause, onSpeech, options = {}) {
     this.stopTelemetryLoop();
     this.lastWordTimestamp = Date.now();
@@ -440,6 +528,8 @@ class PacingTelemetry {
     this._healthySince = null;
     this._rushSince = null;
     this._slowSince = null;
+    this._pauseStartedAt = null;
+    this._deliberatePauses = [];
     this._lastPacketText = "";
     this._lastPacketAt = 0;
     this._windowStartedAt = null;
@@ -458,6 +548,9 @@ class PacingTelemetry {
 
       if (!this._pauseLatched) {
         this._pauseLatched = true;
+        if (this._pauseStartedAt == null) {
+          this._pauseStartedAt = this.lastWordTimestamp;
+        }
       }
       // Throttle pause callbacks to ~1/sec so attention doesn't bleed every 100ms
       // during normal Whisper latency between slices.
@@ -513,6 +606,16 @@ class PacingTelemetry {
       healthyMax: this.healthyMax,
       rushWpm: this.rushWpm,
       slowWpm: this.slowWpm,
+      deliberatePauses: this.getDeliberatePauses(),
+      drillPause: this._drillPause
+        ? {
+            targetSec: this._drillPause.targetSec,
+            minSec: this._drillPause.minSec,
+            maxSec: this._drillPause.maxSec,
+            xp: this._drillPause.xp,
+            label: this._drillPause.label,
+          }
+        : null,
     };
   }
 }

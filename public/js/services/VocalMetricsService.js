@@ -77,7 +77,7 @@ class VocalMetricsService {
 
   /**
    * Keep rush threshold aligned with PacingTelemetry / pace tuner.
-   * @param {number|{ rushWpm?: number, targetWpm?: number }} config
+   * @param {number|{ rushWpm?: number, targetWpm?: number, fillers?: string[] }} config
    */
   configureFromTarget(config = DEFAULT_PACE_TARGET_WPM) {
     if (typeof config === "number") {
@@ -89,7 +89,30 @@ class VocalMetricsService {
         config?.targetWpm ?? DEFAULT_PACE_TARGET_WPM
       ).rushWpm;
     }
+    if (Array.isArray(config?.fillers) && config.fillers.length) {
+      this.fillers = config.fillers.map((f) => String(f).toLowerCase());
+    }
     return this.rushedWpm;
+  }
+
+  /** Course drill calibration — filler list + WPM rush align */
+  configureDrill(telemetry = null) {
+    if (!telemetry) {
+      this.fillers = DEFAULT_FILLERS;
+      return;
+    }
+    if (telemetry.trackFillers === false) {
+      this.fillers = [];
+    } else if (Array.isArray(telemetry.fillerWords) && telemetry.fillerWords.length) {
+      this.fillers = telemetry.fillerWords.map((f) => String(f).toLowerCase());
+    } else {
+      this.fillers = DEFAULT_FILLERS;
+    }
+    if (telemetry.idealWpm?.max != null) {
+      this.rushedWpm = Number(telemetry.idealWpm.max) + 25;
+    } else if (telemetry.targetWpm != null) {
+      this.configureFromTarget(Number(telemetry.targetWpm));
+    }
   }
 
   start(handlers = {}) {

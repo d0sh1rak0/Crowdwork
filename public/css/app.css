@@ -10,6 +10,7 @@
   --gold-glow: rgba(230, 209, 155, 0.35);
   --over: #e5533c;
   --boss: #ffd60a;
+  --accent: #FFD60A;
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
     "Segoe UI", system-ui, sans-serif;
   --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
@@ -1054,11 +1055,15 @@ a:hover {
 
 /* —— Post-pitch Q&A on the live stage (attention / mic / audience stay on) —— */
 .run-view.qa-mode .script-rail,
-.run-view.qa-mode .stage-slide,
+.run-view.qa-mode .stage-slide img,
 .run-view.qa-mode .heckle-run-toggle,
 .run-view.qa-mode .memorize-run-toggle,
 .run-view.qa-mode .memorize-hint {
   display: none !important;
+}
+.run-view.qa-mode .stage-slide {
+  width: 100%;
+  max-width: 40rem;
 }
 .run-view.qa-mode .qa-panel {
   display: block;
@@ -2715,3 +2720,4 @@ body.game-skin {
     height: 88px;
   }
 }
+

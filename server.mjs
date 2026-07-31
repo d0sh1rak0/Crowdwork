@@ -43,6 +43,12 @@ app.get("/script", (_req, res) => {
 app.get("/rehearse", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "rehearse.html"));
 });
+app.get("/course", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "course.html"));
+});
+app.get("/course/drill", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "course-drill.html"));
+});
 
 app.use((err, _req, res, _next) => {
   console.error(err);

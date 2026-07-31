@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="/" />
+    <title>Course — Charisma & Speech Mastery · CrowdWork AI</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <link rel="icon" href="/logo.svg" />
+  </head>
+  <body class="game-skin">
+    <div id="secure-context-banner" class="secure-context-banner" role="alert" hidden></div>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <img src="/logo.svg" alt="CrowdWork AI" width="36" height="36" />
+        <span class="brand-text">
+          <span class="brand-name">CrowdWork</span>
+          <span class="brand-ai">AI</span>
+        </span>
+      </a>
+      <nav class="course-nav">
+        <a class="btn btn-ghost btn-sm" href="/">Pitch deck</a>
+      </nav>
+    </header>
+
+    <main class="page page-game course-page">
+      <div class="hero-glow hero-glow-game" aria-hidden="true"></div>
+      <p class="course-kicker font-utility">Interactive curriculum</p>
+      <h1 class="page-title page-title-game course-title">
+        Charisma &amp; Speech Mastery
+      </h1>
+      <p class="page-sub course-sub">
+        3 units · 12 lessons · 3 boss challenges. Train presence, voice, and impact.
+      </p>
+
+      <div class="course-xp-bar" aria-live="polite">
+        <span class="course-xp-label font-utility">Total XP</span>
+        <span id="course-xp" class="course-xp-value">0</span>
+        <span id="course-badges" class="course-badges"></span>
+      </div>
+
+      <div class="course-layout">
+        <aside class="course-side" aria-label="Units">
+          <div id="unit-tabs" class="unit-tabs"></div>
+        </aside>
+        <section class="course-main" aria-label="Lessons">
+          <div id="unit-detail" class="unit-detail">
+            <div class="skeleton" style="height: 120px; margin-bottom: 1rem"></div>
+            <div class="skeleton" style="height: 72px; margin-bottom: 0.5rem"></div>
+            <div class="skeleton" style="height: 72px"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div id="lesson-modal" class="course-modal hidden" role="dialog" aria-modal="true">
+      <div class="course-modal-backdrop" data-close-modal></div>
+      <div class="course-modal-panel">
+        <button type="button" class="course-modal-close" data-close-modal aria-label="Close">×</button>
+        <p id="modal-kicker" class="course-kicker font-utility"></p>
+        <h2 id="modal-title" class="course-modal-title"></h2>
+        <p id="modal-focus" class="course-modal-focus"></p>
+        <p id="modal-concept" class="course-modal-body"></p>
+        <div class="course-modal-block">
+          <p class="font-utility course-block-label">The Drill</p>
+          <p id="modal-drill"></p>
+        </div>
+        <div class="course-modal-block">
+          <p class="font-utility course-block-label">Lesson Quest</p>
+          <p id="modal-quest"></p>
+          <p id="modal-xp" class="course-xp-chip">+10 XP</p>
+        </div>
+        <div class="course-modal-actions">
+          <button id="modal-start" class="btn btn-primary" type="button">Start lesson</button>
+          <button id="modal-complete" class="btn btn-outline" type="button">Mark complete</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/js/boot-security.js"></script>
+    <script type="module" src="/js/course-page.js"></script>
+  </body>
+</html>

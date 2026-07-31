@@ -1,0 +1,387 @@
+{
+  "id": "charisma-speech-mastery",
+  "title": "Charisma & Speech Mastery",
+  "subtitle": "3 units · 12 lessons · 3 boss challenges",
+  "aesthetic": {
+    "unitColors": {
+      "unit-1": "#34d399",
+      "unit-2": "#60a5fa",
+      "unit-3": "#c084fc"
+    }
+  },
+  "units": [
+    {
+      "id": "unit-1",
+      "order": 1,
+      "title": "The Foundation",
+      "subtitle": "Presence & Body Language",
+      "focus": "Master physical presence, eye contact, and nervous system control.",
+      "color": "#34d399",
+      "lessons": [
+        {
+          "id": "lesson-1",
+          "n": 1,
+          "title": "The 3-Second Rule",
+          "focus": "Eye Contact & Non-Verbal Dominance",
+          "durationMin": 5,
+          "xp": 10,
+          "concept": "Holding eye contact builds trust and projects power. Breaking it downwards signals submissiveness.",
+          "drill": "Watch a news anchor or talk show host on video. Hold steady eye contact with them for 3 seconds at a time. When looking away, deliberately look to the side or up—never down.",
+          "quest": "During your next 2 real-world interactions, hold eye contact for a full 3 seconds before naturally looking to the side.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "presence",
+            "trackFillers": false,
+            "idealWpm": null,
+            "pauseRewardSec": null
+          }
+        },
+        {
+          "id": "lesson-2",
+          "n": 2,
+          "title": "Space & Posture Reset",
+          "focus": "High-Power Body Language",
+          "durationMin": 5,
+          "xp": 10,
+          "concept": "Occupying physical space lowers cortisol and increases felt confidence.",
+          "drill": "Stand up. Roll your shoulders back and down, keep your feet shoulder-width apart, and uncross your arms. Place hands on your hips or keep them relaxed by your sides.",
+          "quest": "Stand in an open posture in front of a mirror for 2 minutes straight without fidgeting or checking your phone.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "presence",
+            "trackFillers": false,
+            "idealWpm": null,
+            "pauseRewardSec": null
+          }
+        },
+        {
+          "id": "lesson-3",
+          "n": 3,
+          "title": "The Presence Anchor",
+          "focus": "Overcoming Mind-Wandering",
+          "durationMin": 7,
+          "xp": 15,
+          "concept": "Charisma requires 100% presence. If your mind is elsewhere, people sense it immediately.",
+          "drill": "Practice sensory grounding. Notice the physical weight of your feet pressing against the floor and track three natural deep breaths.",
+          "quest": "In your next conversation, anytime you notice your focus drifting, perform a subtle physical grounding check (feet on floor) without breaking conversational flow.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "presence",
+            "trackFillers": false,
+            "idealWpm": null,
+            "pauseRewardSec": null
+          }
+        }
+      ],
+      "boss": {
+        "id": "boss-1",
+        "title": "Unit 1 Boss Challenge",
+        "label": "Master Checkpoint",
+        "xp": 40,
+        "challenge": "Record a 60-second video of yourself introducing who you are while maintaining open posture and steady eye contact with the camera lens.",
+        "durationSec": 60,
+        "media": "video",
+        "passCriteria": [
+          {
+            "id": "no-downward-eye-breaks",
+            "label": "Zero downward eye-breaks",
+            "type": "self_check",
+            "required": true
+          },
+          {
+            "id": "open-shoulders",
+            "label": "Open shoulders throughout",
+            "type": "self_check",
+            "required": true
+          },
+          {
+            "id": "duration-ok",
+            "label": "About 60 seconds on camera",
+            "type": "duration",
+            "minSec": 45,
+            "maxSec": 90,
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "unit-2",
+      "order": 2,
+      "title": "Vocal Power & Speech Control",
+      "subtitle": "Breath, Fillers & Pace",
+      "focus": "Eliminate filler words, master breathing, and lower your vocal pitch naturally.",
+      "color": "#60a5fa",
+      "lessons": [
+        {
+          "id": "lesson-4",
+          "n": 4,
+          "title": "Diaphragmatic Reset",
+          "focus": "Breath & Vocal Resonance",
+          "durationMin": 5,
+          "xp": 10,
+          "concept": "Shallow breathing raises vocal pitch and triggers anxiety. Deep abdominal breathing lowers pitch and adds resonance.",
+          "drill": "4-7-8 Technique: Inhale through your nose for 4 seconds (pushing your belly out), hold for 7 seconds, exhale slowly through your mouth for 8 seconds.",
+          "quest": "Complete 3 full cycles of 4-7-8 breathing right before your next call, meeting, or conversation.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "breath",
+            "trackFillers": false,
+            "idealWpm": null,
+            "pauseRewardSec": null
+          }
+        },
+        {
+          "id": "lesson-5",
+          "n": 5,
+          "title": "The Filler Word Purge",
+          "focus": "Replacing 'Um' and 'Ah' with Silence",
+          "durationMin": 7,
+          "xp": 15,
+          "concept": "Filler words come from a fear of silence. Replacing them with a pause signals composure and authority.",
+          "drill": "Pick a random object nearby (e.g., a coffee cup). Speak continuously about it for 45 seconds out loud. Whenever you want to say \"um\" or \"like,\" hit complete silence instead.",
+          "quest": "Have one full conversation today where you use zero filler words, using quiet 1-second pauses instead.",
+          "mode": "voice_drill",
+          "telemetry": {
+            "profile": "filler-purge",
+            "trackFillers": true,
+            "fillerWords": ["um", "uh", "ah", "like", "you know", "so", "basically", "right"],
+            "idealWpm": { "min": 110, "max": 170 },
+            "targetDurationSec": 45,
+            "pauseRewardSec": null,
+            "zeroFillerGoal": true
+          }
+        },
+        {
+          "id": "lesson-6",
+          "n": 6,
+          "title": "The Slow-Mo Speech Drill",
+          "focus": "Pace Control under Pressure",
+          "durationMin": 5,
+          "xp": 10,
+          "concept": "Speaking too fast signals nervousness. Slowing down forces the listener to adapt to your cadence.",
+          "drill": "Read any paragraph from an article out loud at half your normal speaking speed. Force a full 2-second pause at every comma and period.",
+          "quest": "Deliver your next response in a real conversation at 75% of your standard speed.",
+          "mode": "voice_drill",
+          "telemetry": {
+            "profile": "slow-mo",
+            "trackFillers": true,
+            "idealWpm": { "min": 60, "max": 80 },
+            "targetWpm": 70,
+            "pauseRewardSec": 2,
+            "pauseRewardWindowSec": { "min": 1.6, "max": 3.2 },
+            "pauseRewardXp": 10
+          }
+        },
+        {
+          "id": "lesson-7",
+          "n": 7,
+          "title": "Downward Inflection",
+          "focus": "Sounding Authoritative",
+          "durationMin": 5,
+          "xp": 10,
+          "concept": "Ending sentences on a high pitch (upspeak) turns statements into questions. Pitching down at the end conveys confidence.",
+          "drill": "Say \"We should proceed with this plan\" twice. First, with upspeak (question tone). Second, with a firm downward pitch on \"plan.\" Notice the difference in weight.",
+          "quest": "End 3 declarative statements today with a clear downward pitch.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "inflection",
+            "trackFillers": false,
+            "idealWpm": null,
+            "selfCheckInflection": true
+          }
+        }
+      ],
+      "boss": {
+        "id": "boss-2",
+        "title": "Unit 2 Boss Challenge",
+        "label": "Master Checkpoint",
+        "xp": 50,
+        "challenge": "Record a 60-second audio clip explaining what you did yesterday.",
+        "durationSec": 60,
+        "media": "audio",
+        "passCriteria": [
+          {
+            "id": "zero-fillers",
+            "label": "Zero filler words (um, ah, like)",
+            "type": "zero_fillers",
+            "required": true
+          },
+          {
+            "id": "two-pauses",
+            "label": "At least two deliberate pauses",
+            "type": "min_pauses",
+            "minCount": 2,
+            "minPauseSec": 1.2,
+            "required": true
+          },
+          {
+            "id": "downward-inflection",
+            "label": "Downward inflection on the final sentence",
+            "type": "self_check",
+            "required": true
+          },
+          {
+            "id": "duration-ok",
+            "label": "About 60 seconds",
+            "type": "duration",
+            "minSec": 45,
+            "maxSec": 90,
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "unit-3",
+      "order": 3,
+      "title": "Dynamic Charisma & Social Impact",
+      "subtitle": "Warmth, Timing & Presence",
+      "focus": "Active listening, warmth-power balancing, and micro-rejection training.",
+      "color": "#c084fc",
+      "lessons": [
+        {
+          "id": "lesson-8",
+          "n": 8,
+          "title": "The 1-Beat Pause",
+          "focus": "Conversational Gravity",
+          "durationMin": 5,
+          "xp": 10,
+          "concept": "Responding instantly makes you look eager. Waiting one beat shows you processed their thought.",
+          "drill": "Count \"one-one-thousand\" in your head after someone stops speaking before you offer your answer.",
+          "quest": "Apply the 1-beat pause in at least 3 distinct interactions today.",
+          "mode": "voice_drill",
+          "telemetry": {
+            "profile": "one-beat-pause",
+            "trackFillers": true,
+            "pauseRewardSec": 1,
+            "pauseRewardWindowSec": { "min": 0.7, "max": 1.6 },
+            "pauseRewardXp": 10,
+            "pauseRewardLabel": "Great Pause!",
+            "idealWpm": { "min": 110, "max": 170 }
+          }
+        },
+        {
+          "id": "lesson-9",
+          "n": 9,
+          "title": "The Warmth Balance",
+          "focus": "Combining Power with Approachability",
+          "durationMin": 6,
+          "xp": 15,
+          "concept": "Power without warmth is intimidating; warmth without power is easy to dismiss.",
+          "drill": "Practice the \"Warm Smile + Steady Eye Contact\" combo in the mirror. Pair an open smile with a strong, grounded posture.",
+          "quest": "Greet a coworker or stranger with a genuine smile while maintaining firm, open posture.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "warmth",
+            "trackFillers": false
+          }
+        },
+        {
+          "id": "lesson-10",
+          "n": 10,
+          "title": "Comfort Zone Expansion",
+          "focus": "Micro-Rejection Immunity",
+          "durationMin": 8,
+          "xp": 20,
+          "concept": "Confidence expands when your fear of social risk decreases.",
+          "drill": "The Micro-Risk: Ask for a small favor or adjustment in a low-stakes scenario (e.g., asking for extra ice, asking a stranger for the time without checking your phone).",
+          "quest": "Perform 1 small micro-risk today and embrace the temporary discomfort.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "micro-risk",
+            "trackFillers": false
+          }
+        },
+        {
+          "id": "lesson-11",
+          "n": 11,
+          "title": "The Reframe Engine",
+          "focus": "Turning Nervousness into Energy",
+          "durationMin": 5,
+          "xp": 10,
+          "concept": "Anxiety and excitement share identical physical markers (heart rate, adrenaline). Tell your brain it's excitement.",
+          "drill": "Before any social or speaking event, say out loud 3 times: \"I am not nervous, I am excited.\"",
+          "quest": "Use the excitement reframe before your next speech, meeting, or important call.",
+          "mode": "guided",
+          "telemetry": {
+            "profile": "reframe",
+            "trackFillers": false
+          }
+        },
+        {
+          "id": "lesson-12",
+          "n": 12,
+          "title": "The Grand Synthesis",
+          "focus": "Full Execution",
+          "durationMin": 10,
+          "xp": 25,
+          "concept": "Integrating presence, voice, warmth, and pacing into a seamless persona.",
+          "drill": "Record a 2-minute pitch or story combining all skills: eye contact, low pitch, no fillers, open body language, and controlled pauses.",
+          "quest": "Complete the Final Boss Challenge below.",
+          "mode": "voice_drill",
+          "telemetry": {
+            "profile": "synthesis",
+            "trackFillers": true,
+            "idealWpm": { "min": 110, "max": 170 },
+            "targetDurationSec": 120,
+            "pauseRewardSec": 1,
+            "pauseRewardWindowSec": { "min": 0.7, "max": 2.0 },
+            "zeroFillerGoal": true
+          }
+        }
+      ],
+      "boss": {
+        "id": "boss-3",
+        "title": "Unit 3 Final Boss Challenge",
+        "label": "Course Completion Test",
+        "xp": 75,
+        "challenge": "Record a 2-minute video sharing a personal story or explaining a topic you love.",
+        "durationSec": 120,
+        "media": "video",
+        "passCriteria": [
+          {
+            "id": "open-posture-gaze",
+            "label": "Open posture & steady gaze",
+            "type": "self_check",
+            "required": true
+          },
+          {
+            "id": "deep-voice",
+            "label": "Deep diaphragmatic voice pitch",
+            "type": "self_check",
+            "required": true
+          },
+          {
+            "id": "zero-fillers",
+            "label": "Zero filler words",
+            "type": "zero_fillers",
+            "required": true
+          },
+          {
+            "id": "one-beat-pauses",
+            "label": "1-beat pauses before major points",
+            "type": "min_pauses",
+            "minCount": 2,
+            "minPauseSec": 0.7,
+            "required": true
+          },
+          {
+            "id": "downward-inflection",
+            "label": "Downward inflection on conclusion",
+            "type": "self_check",
+            "required": true
+          },
+          {
+            "id": "duration-ok",
+            "label": "About 2 minutes",
+            "type": "duration",
+            "minSec": 90,
+            "maxSec": 150,
+            "required": true
+          }
+        ]
+      }
+    }
+  ]
+}
