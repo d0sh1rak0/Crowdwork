@@ -28,6 +28,7 @@
         <h1 id="drill-title" class="drill-title">Loading…</h1>
         <p id="drill-focus" class="drill-focus"></p>
         <p id="drill-prompt" class="drill-prompt"></p>
+        <p id="drill-test-brief" class="drill-test-brief hidden"></p>
 
         <div class="drill-meters">
           <div class="drill-meter">
@@ -47,6 +48,14 @@
             <span class="font-utility">Time</span>
             <strong id="drill-time">0:00</strong>
           </div>
+        </div>
+
+        <div id="drill-vision-panel" class="drill-vision-panel hidden">
+          <div class="drill-cam-wrap">
+            <video id="drill-cam" playsinline muted autoplay></video>
+            <div id="drill-vision-status" class="drill-vision-status font-utility">Camera ready</div>
+          </div>
+          <div class="drill-live-criteria" id="drill-live-criteria"></div>
         </div>
 
         <div class="wave-panel drill-wave" aria-label="Live microphone waveform">

@@ -147,7 +147,11 @@ function openLessonModal(lessonId) {
   document.getElementById("modal-xp").textContent = `+${lesson.xp} XP`;
   const startBtn = document.getElementById("modal-start");
   startBtn.textContent =
-    lesson.mode === "voice_drill" ? "Launch voice drill" : "Start guided lesson";
+    lesson.mode === "voice_drill"
+      ? "Launch voice drill"
+      : lesson.mode === "vision_drill"
+        ? "Launch camera drill"
+        : "Start guided lesson";
   modal.classList.remove("hidden");
 }
 
@@ -181,8 +185,12 @@ function launchTarget() {
     const found = findLesson(curriculum, modalTarget.id);
     if (!found) return;
     const { lesson, unit } = found;
-    if (lesson.mode === "voice_drill" || lesson.mode === "guided") {
-      // Guided lessons still open drill shell for timer + completion; voice drills calibrate telemetry
+    if (
+      lesson.mode === "voice_drill" ||
+      lesson.mode === "vision_drill" ||
+      lesson.mode === "guided"
+    ) {
+      // Guided / voice / vision drills open the automated test shell
       setActiveDrill({
         kind: "lesson",
         lessonId: lesson.id,

@@ -26,14 +26,16 @@
           "durationMin": 5,
           "xp": 10,
           "concept": "Holding eye contact builds trust and projects power. Breaking it downwards signals submissiveness.",
-          "drill": "Watch a news anchor or talk show host on video. Hold steady eye contact with them for 3 seconds at a time. When looking away, deliberately look to the side or up—never down.",
+          "drill": "Introduce yourself to the camera while holding steady eye contact for 3-second blocks. When looking away, look to the side or up—never down.",
           "quest": "During your next 2 real-world interactions, hold eye contact for a full 3 seconds before naturally looking to the side.",
-          "mode": "guided",
+          "mode": "vision_drill",
           "telemetry": {
             "profile": "presence",
             "trackFillers": false,
             "idealWpm": null,
-            "pauseRewardSec": null
+            "pauseRewardSec": null,
+            "automatedTest": "lesson-1",
+            "targetDurationSec": 30
           }
         },
         {
@@ -44,14 +46,16 @@
           "durationMin": 5,
           "xp": 10,
           "concept": "Occupying physical space lowers cortisol and increases felt confidence.",
-          "drill": "Stand up. Roll your shoulders back and down, keep your feet shoulder-width apart, and uncross your arms. Place hands on your hips or keep them relaxed by your sides.",
+          "drill": "Stand up facing the camera. Roll your shoulders back and down, feet shoulder-width apart, arms uncrossed at hips or sides. Hold for 60 seconds without fidgeting.",
           "quest": "Stand in an open posture in front of a mirror for 2 minutes straight without fidgeting or checking your phone.",
-          "mode": "guided",
+          "mode": "vision_drill",
           "telemetry": {
             "profile": "presence",
             "trackFillers": false,
             "idealWpm": null,
-            "pauseRewardSec": null
+            "pauseRewardSec": null,
+            "automatedTest": "lesson-2",
+            "targetDurationSec": 60
           }
         },
         {
@@ -62,14 +66,16 @@
           "durationMin": 7,
           "xp": 15,
           "concept": "Charisma requires 100% presence. If your mind is elsewhere, people sense it immediately.",
-          "drill": "Practice sensory grounding. Notice the physical weight of your feet pressing against the floor and track three natural deep breaths.",
+          "drill": "Deliver a 45-second response while staying physically grounded. During thinking pauses, keep gaze forward or neutral-horizontal—no wild side-to-side darting.",
           "quest": "In your next conversation, anytime you notice your focus drifting, perform a subtle physical grounding check (feet on floor) without breaking conversational flow.",
-          "mode": "guided",
+          "mode": "vision_drill",
           "telemetry": {
             "profile": "presence",
             "trackFillers": false,
-            "idealWpm": null,
-            "pauseRewardSec": null
+            "idealWpm": { "min": 100, "max": 170 },
+            "pauseRewardSec": null,
+            "automatedTest": "lesson-3",
+            "targetDurationSec": 45
           }
         }
       ],
@@ -85,13 +91,15 @@
           {
             "id": "no-downward-eye-breaks",
             "label": "Zero downward eye-breaks",
-            "type": "self_check",
+            "type": "gaze_no_down_breaks",
+            "maxEvents": 0,
             "required": true
           },
           {
             "id": "open-shoulders",
             "label": "Open shoulders throughout",
-            "type": "self_check",
+            "type": "pose_open_ratio",
+            "minRatio": 0.95,
             "required": true
           },
           {
@@ -121,14 +129,16 @@
           "durationMin": 5,
           "xp": 10,
           "concept": "Shallow breathing raises vocal pitch and triggers anxiety. Deep abdominal breathing lowers pitch and adds resonance.",
-          "drill": "4-7-8 Technique: Inhale through your nose for 4 seconds (pushing your belly out), hold for 7 seconds, exhale slowly through your mouth for 8 seconds.",
+          "drill": "4-7-8 Technique: Inhale through your nose for 4 seconds (belly out), hold for 7 seconds, exhale slowly through your mouth for 8 seconds. Then speak a resonant phrase.",
           "quest": "Complete 3 full cycles of 4-7-8 breathing right before your next call, meeting, or conversation.",
-          "mode": "guided",
+          "mode": "voice_drill",
           "telemetry": {
             "profile": "breath",
             "trackFillers": false,
             "idealWpm": null,
-            "pauseRewardSec": null
+            "pauseRewardSec": null,
+            "automatedTest": "lesson-4",
+            "targetDurationSec": 45
           }
         },
         {
@@ -149,7 +159,8 @@
             "idealWpm": { "min": 110, "max": 170 },
             "targetDurationSec": 45,
             "pauseRewardSec": null,
-            "zeroFillerGoal": true
+            "zeroFillerGoal": true,
+            "automatedTest": "lesson-5"
           }
         },
         {
@@ -169,8 +180,9 @@
             "idealWpm": { "min": 60, "max": 80 },
             "targetWpm": 70,
             "pauseRewardSec": 2,
-            "pauseRewardWindowSec": { "min": 1.6, "max": 3.2 },
-            "pauseRewardXp": 10
+            "pauseRewardWindowSec": { "min": 1.5, "max": 3.2 },
+            "pauseRewardXp": 10,
+            "automatedTest": "lesson-6"
           }
         },
         {
@@ -181,14 +193,15 @@
           "durationMin": 5,
           "xp": 10,
           "concept": "Ending sentences on a high pitch (upspeak) turns statements into questions. Pitching down at the end conveys confidence.",
-          "drill": "Say \"We should proceed with this plan\" twice. First, with upspeak (question tone). Second, with a firm downward pitch on \"plan.\" Notice the difference in weight.",
+          "drill": "Deliver three declarative statements (e.g. \"We should proceed with this plan\") with a firm downward pitch on the final word of each.",
           "quest": "End 3 declarative statements today with a clear downward pitch.",
-          "mode": "guided",
+          "mode": "voice_drill",
           "telemetry": {
             "profile": "inflection",
             "trackFillers": false,
             "idealWpm": null,
-            "selfCheckInflection": true
+            "automatedTest": "lesson-7",
+            "targetDurationSec": 40
           }
         }
       ],
@@ -212,13 +225,13 @@
             "label": "At least two deliberate pauses",
             "type": "min_pauses",
             "minCount": 2,
-            "minPauseSec": 1.2,
+            "minPauseSec": 1.5,
             "required": true
           },
           {
             "id": "downward-inflection",
             "label": "Downward inflection on the final sentence",
-            "type": "self_check",
+            "type": "downward_inflection_final",
             "required": true
           },
           {
@@ -248,17 +261,18 @@
           "durationMin": 5,
           "xp": 10,
           "concept": "Responding instantly makes you look eager. Waiting one beat shows you processed their thought.",
-          "drill": "Count \"one-one-thousand\" in your head after someone stops speaking before you offer your answer.",
+          "drill": "Answer 3 AI prompts. After each prompt ends, wait 1–2 seconds before you speak. Instant answers (<0.5s) count as rushed.",
           "quest": "Apply the 1-beat pause in at least 3 distinct interactions today.",
           "mode": "voice_drill",
           "telemetry": {
             "profile": "one-beat-pause",
             "trackFillers": true,
             "pauseRewardSec": 1,
-            "pauseRewardWindowSec": { "min": 0.7, "max": 1.6 },
+            "pauseRewardWindowSec": { "min": 1.0, "max": 2.0 },
             "pauseRewardXp": 10,
             "pauseRewardLabel": "Great Pause!",
-            "idealWpm": { "min": 110, "max": 170 }
+            "idealWpm": { "min": 110, "max": 170 },
+            "automatedTest": "lesson-8"
           }
         },
         {
@@ -269,12 +283,14 @@
           "durationMin": 6,
           "xp": 15,
           "concept": "Power without warmth is intimidating; warmth without power is easy to dismiss.",
-          "drill": "Practice the \"Warm Smile + Steady Eye Contact\" combo in the mirror. Pair an open smile with a strong, grounded posture.",
+          "drill": "Deliver a greeting to the camera combining a warm smile with open, grounded posture. Hold the combo for at least 5 seconds.",
           "quest": "Greet a coworker or stranger with a genuine smile while maintaining firm, open posture.",
-          "mode": "guided",
+          "mode": "vision_drill",
           "telemetry": {
             "profile": "warmth",
-            "trackFillers": false
+            "trackFillers": false,
+            "automatedTest": "lesson-9",
+            "targetDurationSec": 15
           }
         },
         {
@@ -285,12 +301,15 @@
           "durationMin": 8,
           "xp": 20,
           "concept": "Confidence expands when your fear of social risk decreases.",
-          "drill": "The Micro-Risk: Ask for a small favor or adjustment in a low-stakes scenario (e.g., asking for extra ice, asking a stranger for the time without checking your phone).",
+          "drill": "Speak continuously to the camera. An AI heckler will interrupt mid-speech — keep steady gaze and calm pace (under 160 WPM).",
           "quest": "Perform 1 small micro-risk today and embrace the temporary discomfort.",
-          "mode": "guided",
+          "mode": "vision_drill",
           "telemetry": {
             "profile": "micro-risk",
-            "trackFillers": false
+            "trackFillers": true,
+            "idealWpm": { "min": 100, "max": 155 },
+            "automatedTest": "lesson-10",
+            "targetDurationSec": 45
           }
         },
         {
@@ -301,12 +320,15 @@
           "durationMin": 5,
           "xp": 10,
           "concept": "Anxiety and excitement share identical physical markers (heart rate, adrenaline). Tell your brain it's excitement.",
-          "drill": "Before any social or speaking event, say out loud 3 times: \"I am not nervous, I am excited.\"",
+          "drill": "Say \"I am excited!\" with high energy and open posture, then immediately deliver a ~30-second pitch with steady pacing.",
           "quest": "Use the excitement reframe before your next speech, meeting, or important call.",
-          "mode": "guided",
+          "mode": "vision_drill",
           "telemetry": {
             "profile": "reframe",
-            "trackFillers": false
+            "trackFillers": true,
+            "idealWpm": { "min": 100, "max": 170 },
+            "automatedTest": "lesson-11",
+            "targetDurationSec": 45
           }
         },
         {
@@ -319,7 +341,7 @@
           "concept": "Integrating presence, voice, warmth, and pacing into a seamless persona.",
           "drill": "Record a 2-minute pitch or story combining all skills: eye contact, low pitch, no fillers, open body language, and controlled pauses.",
           "quest": "Complete the Final Boss Challenge below.",
-          "mode": "voice_drill",
+          "mode": "vision_drill",
           "telemetry": {
             "profile": "synthesis",
             "trackFillers": true,
@@ -327,7 +349,8 @@
             "targetDurationSec": 120,
             "pauseRewardSec": 1,
             "pauseRewardWindowSec": { "min": 0.7, "max": 2.0 },
-            "zeroFillerGoal": true
+            "zeroFillerGoal": true,
+            "automatedTest": "lesson-12"
           }
         }
       ],
@@ -341,15 +364,10 @@
         "media": "video",
         "passCriteria": [
           {
-            "id": "open-posture-gaze",
-            "label": "Open posture & steady gaze",
-            "type": "self_check",
-            "required": true
-          },
-          {
-            "id": "deep-voice",
-            "label": "Deep diaphragmatic voice pitch",
-            "type": "self_check",
+            "id": "gaze-85",
+            "label": "Gaze on camera ≥ 85%",
+            "type": "gaze_on_camera",
+            "minRatio": 0.85,
             "required": true
           },
           {
@@ -359,17 +377,32 @@
             "required": true
           },
           {
+            "id": "wpm-120-150",
+            "label": "Average WPM within 120–150",
+            "type": "wpm_window",
+            "minWpm": 120,
+            "maxWpm": 150,
+            "required": true
+          },
+          {
             "id": "one-beat-pauses",
-            "label": "1-beat pauses before major points",
+            "label": "At least three 1-beat pauses",
             "type": "min_pauses",
-            "minCount": 2,
+            "minCount": 3,
             "minPauseSec": 0.7,
             "required": true
           },
           {
             "id": "downward-inflection",
             "label": "Downward inflection on conclusion",
-            "type": "self_check",
+            "type": "downward_inflection_final",
+            "required": true
+          },
+          {
+            "id": "open-posture",
+            "label": "Open posture maintained",
+            "type": "pose_open_ratio",
+            "minRatio": 0.8,
             "required": true
           },
           {

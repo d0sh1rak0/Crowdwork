@@ -3209,6 +3209,100 @@ body.game-skin {
   color: var(--muted);
   font-size: 0.88rem;
 }
+.drill-test-brief {
+  margin: -0.5rem auto 1rem;
+  max-width: 34rem;
+  font-family: var(--font-utility);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--boss) 75%, #fff);
+}
+.drill-test-brief.hidden {
+  display: none;
+}
+.drill-vision-panel {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 auto 1rem;
+  max-width: 34rem;
+  text-align: left;
+}
+.drill-vision-panel.hidden {
+  display: none;
+}
+.drill-cam-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #050505;
+  aspect-ratio: 4 / 3;
+}
+.drill-cam-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+}
+.drill-vision-status {
+  position: absolute;
+  left: 0.55rem;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--boss);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.drill-live-criteria {
+  display: grid;
+  gap: 0.35rem;
+}
+.live-crit {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #080808;
+  font-size: 0.82rem;
+}
+.live-crit em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 0.74rem;
+  text-align: right;
+}
+.live-crit.pass {
+  border-color: color-mix(in srgb, #34d399 50%, transparent);
+}
+.live-crit.pass em {
+  color: #86efac;
+}
+.live-crit.fail {
+  border-color: color-mix(in srgb, var(--over) 45%, transparent);
+}
+.live-crit.fail em {
+  color: #f0a090;
+}
+.boss-auto-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.drill-hud-pop.is-alert {
+  border-color: color-mix(in srgb, var(--over) 65%, transparent);
+  color: #fecaca;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.28);
+}
 .boss-checks {
   text-align: left;
   margin: 0 auto 1rem;
