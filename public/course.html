@@ -36,7 +36,17 @@
       <div class="course-xp-bar" aria-live="polite">
         <span class="course-xp-label font-utility">Total XP</span>
         <span id="course-xp" class="course-xp-value">0</span>
+        <span id="course-progression-slot"></span>
         <span id="course-badges" class="course-badges"></span>
+      </div>
+
+      <div id="course-lock-banner" class="course-lock-banner hidden">
+        <span class="course-lock-icon" aria-hidden="true">🔒</span>
+        <span class="course-lock-copy">
+          <strong>Course locked — reach Level 1 to unlock</strong>
+          <span>Complete your first AI speech rehearsal session (+100 XP) to level up and open Unit 1.</span>
+        </span>
+        <a class="btn btn-primary btn-sm" href="/" style="margin-left:auto">Start a rehearsal</a>
       </div>
 
       <div class="course-layout">
@@ -78,6 +88,9 @@
     </div>
 
     <script type="module" src="/js/boot-security.js"></script>
+    <script type="module" src="/js/context/AuthContext.js"></script>
+    <script type="module" src="/js/components/AuthButton.js"></script>
+    <script type="module" src="/js/components/LevelBadge.js"></script>
     <script type="module" src="/js/course-page.js"></script>
   </body>
 </html>
