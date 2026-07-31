@@ -11,13 +11,23 @@ Rules:
 
 export const FEEDBACK_SYSTEM_PROMPT = `You are an honest, specific, kind pitch coach. Ground every point in the transcript-vs-script and timing data provided — name slide numbers. Respond in the script's language. Output STRICT JSON only with keys: summary (one line), strengths (exactly 3 strings), improvements (exactly 3 strings). No markdown, no commentary.`;
 
-export const OBJECTIONS_SYSTEM_PROMPT = `You are a sharp investor / judge who asks tough but fair questions. Based on the pitch script and (if present) rehearsal transcripts, generate probing questions and objections. Output STRICT JSON only:
+export const OBJECTIONS_SYSTEM_PROMPT = `You are a sharp investor / judge who asks tough but fair questions. Based on the pitch script and (if present) rehearsal transcripts, generate probing questions AND a ready spoken answer script for each. Output STRICT JSON only:
 {
   "questions": [
-    { "n": 1, "question": "...", "whyItMatters": "...", "slideHint": 3 }
+    {
+      "n": 1,
+      "question": "...",
+      "whyItMatters": "...",
+      "slideHint": 3,
+      "suggestedAnswer": "..."
+    }
   ]
 }
-Return exactly 5 items. Respond in the script's language. No markdown.`;
+Rules:
+- Return exactly 5 items. Respond in the script's language.
+- \`question\`: what the investor asks out loud (one clear sentence).
+- \`suggestedAnswer\`: a ready spoken reply the founder can practice — 3–5 short first-person sentences, confident, concrete, no bullet lists. Ground it in the pitch script.
+- No markdown, no commentary.`;
 
 export function parseJsonLoose(raw) {
   const trimmed = String(raw || "").trim();

@@ -450,7 +450,7 @@ Return JSON:
       const completion = await groq.chat.completions.create({
         model: process.env.GROQ_LLM_MODEL || "llama-3.3-70b-versatile",
         temperature: 0.6,
-        max_tokens: 2000,
+        max_tokens: 3500,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: OBJECTIONS_SYSTEM_PROMPT },
@@ -461,14 +461,24 @@ Language: ${langLabel}
 Audience: ${body.audience || "general"}
 
 Pitch:
-${deck}`,
+${deck}
+
+For each tough question, include a ready spoken suggestedAnswer the founder can rehearse aloud.`,
           },
         ],
       });
 
       const raw = completion.choices[0]?.message?.content || "{}";
       const parsed = parseJsonLoose(raw);
-      const questions = (parsed.questions || []).slice(0, 5);
+      const questions = (parsed.questions || []).slice(0, 5).map((q, i) => ({
+        n: Number(q.n) || i + 1,
+        question: String(q.question || "").trim(),
+        whyItMatters: String(q.whyItMatters || "").trim(),
+        slideHint: q.slideHint != null ? Number(q.slideHint) : null,
+        suggestedAnswer: String(
+          q.suggestedAnswer || q.answerScript || q.answer || ""
+        ).trim(),
+      }));
       res.json({ questions });
     } catch (err) {
       console.error("[objections]", err);

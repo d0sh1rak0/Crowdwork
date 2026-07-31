@@ -2,6 +2,7 @@ import {
   fetchFeedback,
   fetchObjections,
   requestHeckle,
+  speakText,
   toastRetry,
 } from "./api.js";
 import { createAudienceEngine } from "./audience.js";
@@ -31,6 +32,7 @@ const stageRoot = document.getElementById("stage-root");
 const countdownView = document.getElementById("countdown-view");
 const runView = document.getElementById("run-view");
 const reportRoot = document.getElementById("report-root");
+const qaRoot = document.getElementById("qa-root");
 const countdownText = document.getElementById("countdown-text");
 const dim = document.getElementById("dim");
 const micNote = document.getElementById("mic-note");
@@ -48,6 +50,7 @@ const hecklersRunEl = document.getElementById("hecklers-run");
 const memorizeRunEl = document.getElementById("memorize-run");
 const memorizeHint = document.getElementById("memorize-hint");
 const runViewEl = document.getElementById("run-view");
+const btnQa = document.getElementById("btn-qa");
 
 let phase = "boot";
 let index = 0;
@@ -81,6 +84,14 @@ let liveTranscriptParts = [];
 let unsubPacing = null;
 let autoAdvanceLock = false;
 let lastAutoAdvanceAt = 0;
+
+/** Post-pitch Q&A session state */
+let qaQuestions = [];
+let qaIndex = 0;
+/** @type {"mind" | "script"} */
+let qaMode = "mind";
+let qaAudio = null;
+let qaSpeakToken = 0;
 
 function state() {
   return getState();
@@ -176,6 +187,223 @@ function speakHeckleBrowser(text, language) {
     }
     window.speechSynthesis.speak(u);
   });
+}
+
+function stopQaAudio() {
+  qaSpeakToken += 1;
+  if (qaAudio) {
+    try {
+      qaAudio.pause();
+      qaAudio.src = "";
+    } catch {
+      /* ignore */
+    }
+    qaAudio = null;
+  }
+  try {
+    window.speechSynthesis?.cancel?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function setQaStatus(text, stateName = "") {
+  const el = document.getElementById("qa-status");
+  if (!el) return;
+  el.textContent = text;
+  if (stateName) el.dataset.state = stateName;
+  else delete el.dataset.state;
+}
+
+function setQaButtonReady(ready) {
+  if (!btnQa) return;
+  btnQa.disabled = !ready;
+  btnQa.title = ready
+    ? "Practice tough questions with AI voice"
+    : "Loading tough questions…";
+}
+
+function normalizeQaQuestions(raw) {
+  return (raw || [])
+    .map((q, i) => {
+      const question = String(q.question || "").trim();
+      if (!question) return null;
+      let suggestedAnswer = String(
+        q.suggestedAnswer || q.answerScript || q.answer || ""
+      ).trim();
+      if (!suggestedAnswer) {
+        const why = String(q.whyItMatters || "").trim();
+        suggestedAnswer = why
+          ? `Here's how I'd answer that. ${why} I'll ground it in the strongest proof from our pitch and close with a clear next step.`
+          : `I'd take that head-on, share the clearest proof from our pitch, and finish with what we're asking for.`;
+      }
+      return {
+        n: Number(q.n) || i + 1,
+        question,
+        whyItMatters: String(q.whyItMatters || "").trim(),
+        slideHint: q.slideHint != null ? Number(q.slideHint) : null,
+        suggestedAnswer,
+      };
+    })
+    .filter(Boolean);
+}
+
+function questionsHaveAnswers(questions) {
+  return (
+    Array.isArray(questions) &&
+    questions.length > 0 &&
+    questions.every((q) => String(q.suggestedAnswer || "").trim())
+  );
+}
+
+function applyQaModeUi() {
+  const mindBtn = document.getElementById("qa-mode-mind");
+  const scriptBtn = document.getElementById("qa-mode-script");
+  const panel = document.getElementById("qa-answer-panel");
+  const hint = document.getElementById("qa-mind-hint");
+  mindBtn?.classList.toggle("is-active", qaMode === "mind");
+  scriptBtn?.classList.toggle("is-active", qaMode === "script");
+  panel?.classList.toggle("hidden", qaMode !== "script");
+  hint?.classList.toggle("hidden", qaMode !== "mind");
+}
+
+function renderQaQuestion() {
+  const q = qaQuestions[qaIndex];
+  if (!q) return;
+  document.getElementById("qa-index").textContent = String(qaIndex + 1);
+  document.getElementById("qa-total").textContent = String(qaQuestions.length);
+  document.getElementById("qa-question").textContent = q.question;
+  const whyEl = document.getElementById("qa-why");
+  const whyBits = [];
+  if (q.whyItMatters) whyBits.push(q.whyItMatters);
+  if (q.slideHint) whyBits.push(`Slide ${q.slideHint}`);
+  whyEl.textContent = whyBits.join(" · ");
+  document.getElementById("qa-answer").textContent = q.suggestedAnswer;
+  const nextBtn = document.getElementById("qa-next");
+  if (nextBtn) {
+    nextBtn.textContent =
+      qaIndex >= qaQuestions.length - 1 ? "Finish Q&A" : "Next question";
+  }
+  applyQaModeUi();
+}
+
+async function speakQaQuestion() {
+  const q = qaQuestions[qaIndex];
+  if (!q) return;
+  stopQaAudio();
+  const token = qaSpeakToken;
+  const language = state().resolvedLanguage || "en";
+  setQaStatus("Investor is asking…", "speaking");
+  try {
+    try {
+      const blob = await speakText(q.question, language, { speed: 1 });
+      if (token !== qaSpeakToken) return;
+      const url = URL.createObjectURL(blob);
+      qaAudio = new Audio(url);
+      await new Promise((resolve, reject) => {
+        qaAudio.onended = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        qaAudio.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("Audio playback failed"));
+        };
+        qaAudio.play().catch(reject);
+      });
+    } catch {
+      if (token !== qaSpeakToken) return;
+      await speakHeckleBrowser(q.question, language);
+    }
+  } catch (err) {
+    console.warn("[qa] speak failed", err);
+  }
+  if (token !== qaSpeakToken) return;
+  setQaStatus(
+    qaMode === "script"
+      ? "Your turn — use the answer script, or switch to From mind."
+      : "Your turn — answer out loud from memory.",
+    "your-turn"
+  );
+}
+
+async function startQaSession() {
+  const report = state().rehearsalReport;
+  if (!report) return;
+
+  setQaStatus("Loading tough questions…");
+  btnQa && (btnQa.disabled = true);
+
+  let questions = normalizeQaQuestions(state().objections?.questions);
+  // Old cache without answer scripts → regenerate
+  if (!questionsHaveAnswers(state().objections?.questions)) {
+    setObjections(null);
+    questions = [];
+  }
+
+  if (!questions.length) {
+    try {
+      const data = await fetchObjections({
+        purpose: getPurposeString(),
+        audience: state().setup.audience,
+        language: state().resolvedLanguage,
+        slides: report.slides.map((r, i) => ({
+          n: r.n,
+          script: pitchSlides[i]?.script || "",
+          transcript: r.transcript,
+        })),
+      });
+      questions = normalizeQaQuestions(data.questions);
+      setObjections({ questions });
+      renderObjections(questions);
+    } catch (err) {
+      setQaButtonReady(Boolean(state().objections?.questions?.length));
+      toastRetry(
+        err instanceof Error ? err.message : "Could not load Q&A questions.",
+        () => startQaSession()
+      );
+      return;
+    }
+  }
+
+  if (!questions.length) {
+    setQaButtonReady(false);
+    toastRetry("No tough questions available yet.", () => startQaSession());
+    return;
+  }
+
+  qaQuestions = questions;
+  qaIndex = 0;
+  qaMode = "mind";
+  phase = "qa";
+
+  reportRoot.classList.add("hidden");
+  stageRoot.classList.add("hidden");
+  qaRoot.classList.remove("hidden");
+  window.scrollTo(0, 0);
+
+  renderQaQuestion();
+  await speakQaQuestion();
+}
+
+function exitQaSession() {
+  stopQaAudio();
+  phase = "report";
+  qaRoot.classList.add("hidden");
+  reportRoot.classList.remove("hidden");
+  setQaButtonReady(qaQuestions.length > 0 || Boolean(state().objections?.questions?.length));
+  window.scrollTo(0, 0);
+}
+
+async function qaGoNext() {
+  stopQaAudio();
+  if (qaIndex >= qaQuestions.length - 1) {
+    exitQaSession();
+    return;
+  }
+  qaIndex += 1;
+  renderQaQuestion();
+  await speakQaQuestion();
 }
 
 /** Avoid double-counting near-duplicate Whisper chunks */
@@ -1112,10 +1340,15 @@ function renderCoach(feedback) {
 
 async function loadObjections(report) {
   const body = document.getElementById("objections-body");
+  setQaButtonReady(false);
   const existing = state().objections;
-  if (existing?.questions?.length) {
-    renderObjections(existing.questions);
+  // Prefer a cache that already includes answer scripts for Q&A
+  if (existing?.questions?.length && questionsHaveAnswers(existing.questions)) {
+    renderObjections(normalizeQaQuestions(existing.questions));
     return;
+  }
+  if (existing?.questions?.length && !questionsHaveAnswers(existing.questions)) {
+    setObjections(null);
   }
   const s = state();
   try {
@@ -1129,10 +1362,12 @@ async function loadObjections(report) {
         transcript: r.transcript,
       })),
     });
-    setObjections(data);
-    renderObjections(data.questions || []);
+    const questions = normalizeQaQuestions(data.questions);
+    setObjections({ questions });
+    renderObjections(questions);
   } catch (err) {
     body.innerHTML = `<p style="color:var(--muted);font-size:0.875rem">Questions unavailable.</p>`;
+    setQaButtonReady(false);
     toastRetry(err instanceof Error ? err.message : "Objections failed.", () => {
       setObjections(null);
       loadObjections(report);
@@ -1142,11 +1377,13 @@ async function loadObjections(report) {
 
 function renderObjections(questions) {
   const body = document.getElementById("objections-body");
-  if (!questions.length) {
+  const list = normalizeQaQuestions(questions);
+  if (!list.length) {
     body.innerHTML = `<p style="color:var(--muted);font-size:0.875rem">No questions returned.</p>`;
+    setQaButtonReady(false);
     return;
   }
-  body.innerHTML = questions
+  body.innerHTML = list
     .map(
       (q) => `
       <div class="objection-item">
@@ -1157,6 +1394,7 @@ function renderObjections(questions) {
       </div>`
     )
     .join("");
+  setQaButtonReady(true);
 }
 
 function restartRun() {
@@ -1208,11 +1446,62 @@ document.getElementById("btn-new").addEventListener("click", () => {
   navigateSafely("/");
 });
 
+btnQa?.addEventListener("click", () => {
+  startQaSession();
+});
+document.getElementById("qa-exit")?.addEventListener("click", () => {
+  exitQaSession();
+});
+document.getElementById("qa-replay")?.addEventListener("click", () => {
+  speakQaQuestion();
+});
+document.getElementById("qa-next")?.addEventListener("click", () => {
+  qaGoNext();
+});
+document.getElementById("qa-mode-mind")?.addEventListener("click", () => {
+  qaMode = "mind";
+  applyQaModeUi();
+  if (document.getElementById("qa-status")?.dataset.state === "your-turn") {
+    setQaStatus("Your turn — answer out loud from memory.", "your-turn");
+  }
+});
+document.getElementById("qa-mode-script")?.addEventListener("click", () => {
+  qaMode = "script";
+  applyQaModeUi();
+  if (document.getElementById("qa-status")?.dataset.state === "your-turn") {
+    setQaStatus(
+      "Your turn — use the answer script, or switch to From mind.",
+      "your-turn"
+    );
+  }
+});
+
 window.addEventListener("mousemove", () => {
   if (phase === "running") showControls();
 });
 
 window.addEventListener("keydown", (e) => {
+  if (phase === "qa") {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      exitQaSession();
+    } else if (e.key === " " || e.key === "ArrowRight") {
+      e.preventDefault();
+      qaGoNext();
+    } else if (e.key === "r" || e.key === "R") {
+      e.preventDefault();
+      speakQaQuestion();
+    } else if (e.key === "m" || e.key === "M") {
+      e.preventDefault();
+      qaMode = "mind";
+      applyQaModeUi();
+    } else if (e.key === "s" || e.key === "S") {
+      e.preventDefault();
+      qaMode = "script";
+      applyQaModeUi();
+    }
+    return;
+  }
   if (phase !== "running") return;
   if (e.key === "Escape") {
     e.preventDefault();
