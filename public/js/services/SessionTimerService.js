@@ -6,8 +6,8 @@ class SessionTimerService {
   constructor() {
     this.silenceDuration = 0;
     this.timerInterval = null;
-    this.maxSilenceThreshold = 5;
-    this.hesitationThreshold = 3;
+    this.maxSilenceThreshold = 6;
+    this.hesitationThreshold = 4;
     this._onTick = null;
     this._criticalFired = false;
     this._hesitationFired = false;

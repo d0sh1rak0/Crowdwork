@@ -1,25 +1,33 @@
-export const SCRIPT_SYSTEM_PROMPT = `You are an expert speechwriter and pitch coach. You turn slide decks into scripts people actually say out loud.
+export const SCRIPT_SYSTEM_PROMPT = `Speechwriter for live pitches. Output STRICT compact JSON only — no markdown, no commentary.
 
 Rules:
-- Write in spoken language: short sentences, contractions, first person. Never read the slide's bullet text back to the audience.
-- Slide 1 opens with a hook — a question, a sharp fact, or a one-line story. The final slide lands the ask or call to action explicitly.
-- Signpost transitions so consecutive slides flow as one talk, not separate captions.
-- Allocate \`seconds\` per slide so the total lands within ±10% of the target duration. Weight content-heavy slides more; section dividers get 5–10 seconds.
-- HARD LENGTH CAP: ~140–160 spoken words per minute of allocated time. Do NOT write essays. Typical slide scripts are 2–5 short sentences (about 40–120 words) unless the slide owns a large time budget.
-- Never invent extra slides. Return exactly one JSON object per requested slide, then stop.
-- Match the requested tone and write the script entirely in the requested language.
-- \`tip\` is one short practical delivery note per slide: where to pause, what to emphasize, when to look up from the screen.
-- Output STRICT JSON only, matching the provided schema. No markdown, no commentary.`;
+- Spoken voice: short sentences, contractions, first person. Do not recite slide bullets.
+- Slide 1 = hook. Final slide = explicit ask/CTA. Signpost transitions between slides.
+- Allocate \`seconds\` so totals land within ±10% of the target. Dividers: 5–10s.
+- HARD CAP: 2–4 short sentences per slide (~25–80 words). ~2.5 words/sec of \`seconds\`. No essays.
+- One object per requested slide only. Match tone + language.
+- \`tip\`: ≤12 words delivery note.
+- Schema: {"slides":[{"n":1,"script":"...","seconds":30,"tip":"..."}]}`;
 
 export const FEEDBACK_SYSTEM_PROMPT = `You are an honest, specific, kind pitch coach. Ground every point in the transcript-vs-script and timing data provided — name slide numbers. Respond in the script's language. Output STRICT JSON only with keys: summary (one line), strengths (exactly 3 strings), improvements (exactly 3 strings). No markdown, no commentary.`;
 
-export const OBJECTIONS_SYSTEM_PROMPT = `You are a sharp investor / judge who asks tough but fair questions. Based on the pitch script and (if present) rehearsal transcripts, generate probing questions and objections. Output STRICT JSON only:
+export const OBJECTIONS_SYSTEM_PROMPT = `You are a sharp investor / judge who asks tough but fair questions. Based on the pitch script and (if present) rehearsal transcripts, generate probing questions AND a ready spoken answer script for each. Output STRICT JSON only:
 {
   "questions": [
-    { "n": 1, "question": "...", "whyItMatters": "...", "slideHint": 3 }
+    {
+      "n": 1,
+      "question": "...",
+      "whyItMatters": "...",
+      "slideHint": 3,
+      "suggestedAnswer": "..."
+    }
   ]
 }
-Return exactly 5 items. Respond in the script's language. No markdown.`;
+Rules:
+- Return exactly 5 items. Respond in the script's language.
+- \`question\`: what the investor asks out loud (one clear sentence).
+- \`suggestedAnswer\`: a ready spoken reply the founder can practice — 3–5 short first-person sentences, confident, concrete, no bullet lists. Ground it in the pitch script.
+- No markdown, no commentary.`;
 
 export function parseJsonLoose(raw) {
   const trimmed = String(raw || "").trim();

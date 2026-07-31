@@ -2,6 +2,7 @@ import {
   fetchFeedback,
   fetchObjections,
   requestHeckle,
+  speakText,
   toastRetry,
 } from "./api.js";
 import { createAudienceEngine } from "./audience.js";
@@ -9,16 +10,21 @@ import SessionCoordinator from "./coordination/SessionCoordinator.js";
 import WaveformVisualizer from "./components/WaveformVisualizer.js";
 import pacingTelemetry from "./services/PacingTelemetry.js";
 import sessionTimerService from "./services/SessionTimerService.js";
+import { shouldAutoAdvanceSlide } from "./services/SlideAdvanceService.js";
 import vocalMetricsService from "./services/VocalMetricsService.js";
+import { getPitchLevel } from "./services/pitchLevels.js";
 import NetworkClient from "./utilities/NetworkClient.js";
 import {
   getPurposeString,
   getState,
   hasScript,
+  navigateSafely,
   resetAll,
   setFeedback,
   setObjections,
   setRehearsalReport,
+  updateSetup,
+  activeScriptSlides,
 } from "./store.js";
 import { detectFillers, fillerTotal, formatTime, wordCount } from "./utils.js";
 
@@ -36,8 +42,14 @@ const stageScript = document.getElementById("stage-script");
 const budgetFill = document.getElementById("budget-fill");
 const budgetLabel = document.getElementById("budget-label");
 const controls = document.getElementById("controls");
+const btnNext = document.getElementById("btn-next");
 const camVideo = document.getElementById("cam-video");
 const camFallback = document.getElementById("cam-fallback");
+const hecklersRunEl = document.getElementById("hecklers-run");
+const memorizeRunEl = document.getElementById("memorize-run");
+const memorizeHint = document.getElementById("memorize-hint");
+const runViewEl = document.getElementById("run-view");
+const btnQa = document.getElementById("btn-qa");
 
 let phase = "boot";
 let index = 0;
@@ -64,9 +76,29 @@ let audience = null;
 let attentionSnapshot = null;
 let heckleAudio = null;
 let heckleInFlight = false;
+/** Active (non-excluded) slides for this rehearsal run */
+let pitchSlides = [];
 let hesitationApplied = false;
 let liveTranscriptParts = [];
 let unsubPacing = null;
+let autoAdvanceLock = false;
+let lastAutoAdvanceAt = 0;
+
+/** Post-pitch Q&A session state (runs on the live stage) */
+let qaQuestions = [];
+let qaIndex = 0;
+/** @type {"mind" | "script"} */
+let qaMode = "mind";
+let qaAudio = null;
+let qaSpeakToken = 0;
+/** True while the AI voice is asking — STT is paused so TTS isn't scored */
+let qaAsking = false;
+/** Per-question spoken answers captured during Q&A */
+let qaTranscripts = [];
+
+function isLivePhase() {
+  return phase === "running" || phase === "qa";
+}
 
 function state() {
   return getState();
@@ -75,10 +107,542 @@ function state() {
 function showControls() {
   controls.classList.remove("hidden");
   if (hideTimer) clearTimeout(hideTimer);
-  hideTimer = setTimeout(() => controls.classList.add("hidden"), 2000);
+  // Secondary controls can fade; Next FAB stays visible always
+  hideTimer = setTimeout(() => controls.classList.add("hidden"), 2800);
+}
+
+/** Whisper bias: distinctive deck terms so product names stick (not full-script echo) */
+function whisperPromptForSlide() {
+  const s = state();
+  const current = pitchSlides[index];
+  const script = String(current?.script || "");
+  const title = String(s.deckTitle || "");
+  const recent = String(transcripts[index] || "")
+    .split(/\s+/)
+    .slice(-8)
+    .join(" ");
+  const vocab = `${title} ${script}`
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 4)
+    .filter((w, i, arr) => arr.findIndex((x) => x.toLowerCase() === w.toLowerCase()) === i)
+    .slice(0, 28)
+    .join(", ");
+  return `${vocab}. ${recent}`.replace(/\s+/g, " ").trim().slice(0, 700);
+}
+
+function recentSpokenWords(max = 8) {
+  const words = String(transcripts[index] || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length < 2) {
+    // Fall back to live hearing strip if per-slide buffer is thin
+    const live = liveTranscriptParts.join(" ").trim().split(/\s+/).filter(Boolean);
+    return live.slice(-max).join(" ");
+  }
+  return words.slice(-max).join(" ");
+}
+
+/** Prefer a natural local voice when OpenAI TTS quota is exhausted */
+function pickBrowserHeckleVoice(lang) {
+  if (!("speechSynthesis" in window)) return null;
+  const want = lang === "ru" ? "ru" : "en";
+  const voices = window.speechSynthesis.getVoices?.() || [];
+  const scored = voices
+    .filter((v) => (v.lang || "").toLowerCase().startsWith(want))
+    .map((v) => {
+      const name = `${v.name} ${v.lang}`.toLowerCase();
+      let score = 0;
+      if (/google|premium|neural|enhanced|natural|samantha|daniel|karen|moira|thomas|milena|yuri|irina/.test(name)) {
+        score += 5;
+      }
+      if (/compact|robot|espeak|festival/.test(name)) score -= 4;
+      if (v.localService) score += 1;
+      return { v, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.v || null;
+}
+
+function speakHeckleBrowser(text, language) {
+  return new Promise((resolve) => {
+    if (!("speechSynthesis" in window)) {
+      resolve();
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = language === "ru" ? "ru-RU" : "en-US";
+    u.rate = 1.1;
+    u.pitch = 0.88;
+    u.volume = 1;
+    const voice = pickBrowserHeckleVoice(language);
+    if (voice) u.voice = voice;
+    u.onend = () => resolve();
+    u.onerror = () => resolve();
+    window.speechSynthesis.cancel();
+    // Chrome sometimes needs voices loaded asynchronously
+    if (!voice && window.speechSynthesis.getVoices().length === 0) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        const late = pickBrowserHeckleVoice(language);
+        if (late) u.voice = late;
+        window.speechSynthesis.speak(u);
+      };
+      // Safety timeout if voices never arrive
+      setTimeout(() => window.speechSynthesis.speak(u), 250);
+      return;
+    }
+    window.speechSynthesis.speak(u);
+  });
+}
+
+function stopQaAudio() {
+  qaSpeakToken += 1;
+  qaAsking = false;
+  if (qaAudio) {
+    try {
+      qaAudio.pause();
+      qaAudio.src = "";
+    } catch {
+      /* ignore */
+    }
+    qaAudio = null;
+  }
+  try {
+    window.speechSynthesis?.cancel?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function setQaStatus(text, stateName = "") {
+  const el = document.getElementById("qa-status");
+  if (!el) return;
+  el.textContent = text;
+  if (stateName) el.dataset.state = stateName;
+  else delete el.dataset.state;
+}
+
+function setQaButtonReady(ready) {
+  if (!btnQa) return;
+  btnQa.disabled = !ready;
+  btnQa.title = ready
+    ? "Practice tough questions with AI voice"
+    : "Loading tough questions…";
+}
+
+function normalizeQaQuestions(raw) {
+  return (raw || [])
+    .map((q, i) => {
+      const question = String(q.question || "").trim();
+      if (!question) return null;
+      let suggestedAnswer = String(
+        q.suggestedAnswer || q.answerScript || q.answer || ""
+      ).trim();
+      if (!suggestedAnswer) {
+        const why = String(q.whyItMatters || "").trim();
+        suggestedAnswer = why
+          ? `Here's how I'd answer that. ${why} I'll ground it in the strongest proof from our pitch and close with a clear next step.`
+          : `I'd take that head-on, share the clearest proof from our pitch, and finish with what we're asking for.`;
+      }
+      return {
+        n: Number(q.n) || i + 1,
+        question,
+        whyItMatters: String(q.whyItMatters || "").trim(),
+        slideHint: q.slideHint != null ? Number(q.slideHint) : null,
+        suggestedAnswer,
+      };
+    })
+    .filter(Boolean);
+}
+
+function questionsHaveAnswers(questions) {
+  return (
+    Array.isArray(questions) &&
+    questions.length > 0 &&
+    questions.every((q) => String(q.suggestedAnswer || "").trim())
+  );
+}
+
+function whisperPromptForQa() {
+  const q = qaQuestions[qaIndex];
+  if (!q) return "";
+  const recent = String(qaTranscripts[qaIndex] || "")
+    .split(/\s+/)
+    .slice(-8)
+    .join(" ");
+  return `${q.question} ${q.suggestedAnswer} ${recent}`
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
+}
+
+function applyQaModeUi() {
+  const mindBtn = document.getElementById("qa-mode-mind");
+  const scriptBtn = document.getElementById("qa-mode-script");
+  const hint = document.getElementById("qa-mind-hint");
+  mindBtn?.classList.toggle("is-active", qaMode === "mind");
+  scriptBtn?.classList.toggle("is-active", qaMode === "script");
+  runViewEl?.classList.toggle("qa-mind", qaMode === "mind");
+  // stage-script holds the answer you must say back
+  if (stageScript) {
+    const q = qaQuestions[qaIndex];
+    stageScript.textContent = q?.suggestedAnswer || "";
+    stageScript.classList.toggle("hidden", qaMode === "mind");
+  }
+  hint?.classList.toggle("hidden", qaMode !== "mind");
+}
+
+function renderQaQuestion() {
+  const q = qaQuestions[qaIndex];
+  if (!q) return;
+  const idxEl = document.getElementById("qa-index");
+  const totEl = document.getElementById("qa-total");
+  const qEl = document.getElementById("qa-question");
+  if (idxEl) idxEl.textContent = String(qaIndex + 1);
+  if (totEl) totEl.textContent = String(qaQuestions.length);
+  if (qEl) qEl.textContent = q.question;
+  const whyEl = document.getElementById("qa-why");
+  const whyBits = [];
+  if (q.whyItMatters) whyBits.push(q.whyItMatters);
+  if (q.slideHint) whyBits.push(`Slide ${q.slideHint}`);
+  if (whyEl) whyEl.textContent = whyBits.join(" · ");
+
+  // What you must say back = answer script (visible only in Show script)
+  if (stageScript) stageScript.textContent = q.suggestedAnswer;
+
+  if (btnNext) {
+    const label = btnNext.querySelector(".stage-next-fab-label");
+    const onLast = qaIndex >= qaQuestions.length - 1;
+    if (label) label.textContent = onLast ? "Finish Q&A" : "Next question";
+    btnNext.classList.toggle("is-finish", onLast);
+    btnNext.setAttribute(
+      "aria-label",
+      onLast ? "Finish Q&A" : "Next question"
+    );
+  }
+  const prevBtn = document.getElementById("btn-prev");
+  if (prevBtn) prevBtn.disabled = qaIndex === 0;
+
+  liveTranscriptParts = [];
+  const liveEl = document.getElementById("live-transcript");
+  if (liveEl) {
+    liveEl.textContent = qaTranscripts[qaIndex] || "Listening…";
+    liveEl.classList.toggle("has-text", Boolean(qaTranscripts[qaIndex]));
+  }
+  slideElapsed = 0;
+  applyQaModeUi();
+  updateTimers();
+}
+
+async function speakQaQuestion() {
+  const q = qaQuestions[qaIndex];
+  if (!q || phase !== "qa") return;
+  stopQaAudio();
+  const token = qaSpeakToken;
+  const language = state().resolvedLanguage || "en";
+  qaAsking = true;
+  setQaStatus("Investor is asking… listen, then answer.", "speaking");
+  try {
+    try {
+      const blob = await speakText(q.question, language, { speed: 1 });
+      if (token !== qaSpeakToken) return;
+      const url = URL.createObjectURL(blob);
+      qaAudio = new Audio(url);
+      await new Promise((resolve, reject) => {
+        qaAudio.onended = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        qaAudio.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("Audio playback failed"));
+        };
+        qaAudio.play().catch(reject);
+      });
+    } catch {
+      if (token !== qaSpeakToken) return;
+      await speakHeckleBrowser(q.question, language);
+    }
+  } catch (err) {
+    console.warn("[qa] speak failed", err);
+  }
+  if (token !== qaSpeakToken) return;
+  qaAsking = false;
+  // Touch pause clock so attention doesn't dump right as your turn starts
+  pacingTelemetry.touchSpeechClock?.();
+  sessionTimerService.resetSilenceCounter();
+  setQaStatus(
+    qaMode === "script"
+      ? "Your turn — say the answer script out loud. Room is listening."
+      : "Your turn — answer out loud from memory. Room is listening.",
+    "your-turn"
+  );
+}
+
+async function ensureMediaForLive() {
+  const liveAudio = mediaStream
+    ?.getAudioTracks?.()
+    .some((t) => t.readyState === "live");
+  if (liveAudio) {
+    if (!audioStream) {
+      audioStream = new MediaStream(mediaStream.getAudioTracks());
+    }
+    if (!camDenied && mediaStream.getVideoTracks().length) {
+      camVideo.srcObject = mediaStream;
+      camFallback.classList.add("hidden");
+      try {
+        await camVideo.play();
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
+  micDenied = true;
+  camDenied = true;
+  mediaStream = null;
+  audioStream = null;
+  const secureOk = NetworkClient.checkHardwareSecurity();
+  if (!secureOk || !navigator.mediaDevices?.getUserMedia) {
+    micDenied = true;
+    camDenied = true;
+    return;
+  }
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+      video: {
+        facingMode: "user",
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
+    });
+    micDenied = mediaStream.getAudioTracks().length === 0;
+    camDenied = mediaStream.getVideoTracks().length === 0;
+  } catch {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micDenied = false;
+      camDenied = true;
+    } catch {
+      mediaStream = null;
+      micDenied = true;
+      camDenied = true;
+    }
+  }
+  if (mediaStream && !camDenied) {
+    camVideo.srcObject = mediaStream;
+    camFallback.classList.add("hidden");
+    try {
+      await camVideo.play();
+    } catch {
+      /* ignore */
+    }
+  } else {
+    camFallback.classList.remove("hidden");
+  }
+  if (mediaStream && !micDenied) {
+    audioStream = new MediaStream(mediaStream.getAudioTracks());
+  }
+}
+
+async function startQaSession() {
+  const report = state().rehearsalReport;
+  if (!report) return;
+
+  setQaStatus("Loading tough questions…");
+  btnQa && (btnQa.disabled = true);
+
+  let questions = normalizeQaQuestions(state().objections?.questions);
+  if (!questionsHaveAnswers(state().objections?.questions)) {
+    setObjections(null);
+    questions = [];
+  }
+
+  if (!questions.length) {
+    try {
+      const data = await fetchObjections({
+        purpose: getPurposeString(),
+        audience: state().setup.audience,
+        language: state().resolvedLanguage,
+        slides: report.slides.map((r, i) => ({
+          n: r.n,
+          script: pitchSlides[i]?.script || "",
+          transcript: r.transcript,
+        })),
+      });
+      questions = normalizeQaQuestions(data.questions);
+      setObjections({ questions });
+      renderObjections(questions);
+    } catch (err) {
+      setQaButtonReady(Boolean(state().objections?.questions?.length));
+      toastRetry(
+        err instanceof Error ? err.message : "Could not load Q&A questions.",
+        () => startQaSession()
+      );
+      return;
+    }
+  }
+
+  if (!questions.length) {
+    setQaButtonReady(false);
+    toastRetry("No tough questions available yet.", () => startQaSession());
+    return;
+  }
+
+  qaQuestions = questions;
+  qaIndex = 0;
+  qaMode = "mind";
+  qaAsking = false;
+  qaTranscripts = questions.map(() => "");
+  paused = false;
+  elapsed = 0;
+  slideElapsed = 0;
+
+  await ensureMediaForLive();
+  initAudience();
+
+  try {
+    await document.documentElement.requestFullscreen();
+  } catch {
+    /* optional */
+  }
+
+  phase = "qa";
+  reportRoot.classList.add("hidden");
+  stageRoot.classList.remove("hidden");
+  countdownView.classList.add("hidden");
+  runView.classList.remove("hidden", "memorize-mode");
+  runView.classList.add("visible", "qa-mode");
+  document.getElementById("qa-panel")?.classList.remove("hidden");
+  if (micDenied || camDenied) micBanner.classList.remove("hidden");
+  else micBanner.classList.add("hidden");
+
+  const badge = document.getElementById("pitch-level-badge");
+  if (badge) badge.textContent = "Q&A";
+
+  const pauseBtn = document.getElementById("btn-pause");
+  if (pauseBtn) pauseBtn.textContent = "Pause";
+  const exitBtn = document.getElementById("btn-exit");
+  if (exitBtn) exitBtn.textContent = "Exit Q&A";
+  const keys = document.querySelector(".stage-keys");
+  if (keys) keys.textContent = "Space · next question";
+
+  applyPaceSettingsFromStore();
+  audience?.start();
+  startVocalMetrics();
+  startTimers();
+  showControls();
+  renderQaQuestion();
+
+  if (!micDenied) {
+    startRecording();
+    const waveCanvas = document.getElementById("wave-canvas");
+    if (waveCanvas) {
+      waveform?.stop?.();
+      waveform = new WaveformVisualizer(waveCanvas);
+      waveform.init(audioStream || mediaStream);
+      void waveform.resume?.();
+    }
+    document.querySelector(".wave-panel")?.classList.remove("wave-offline");
+  } else {
+    document.querySelector(".wave-panel")?.classList.add("wave-offline");
+  }
+
+  window.scrollTo(0, 0);
+  await speakQaQuestion();
+}
+
+async function exitQaSession() {
+  stopQaAudio();
+  qaAsking = false;
+  phase = "report";
+  cancelAnimationFrame(raf);
+  await stopRecording();
+  runView.classList.remove("visible", "qa-mode", "qa-mind");
+  runView.classList.add("hidden");
+  document.getElementById("qa-panel")?.classList.add("hidden");
+  stageRoot.classList.add("hidden");
+  const exitBtn = document.getElementById("btn-exit");
+  if (exitBtn) exitBtn.textContent = "Exit";
+  reportRoot.classList.remove("hidden");
+  setQaButtonReady(
+    qaQuestions.length > 0 || Boolean(state().objections?.questions?.length)
+  );
+  window.scrollTo(0, 0);
+}
+
+async function qaGoNext() {
+  if (phase !== "qa") return;
+  stopQaAudio();
+  if (qaIndex >= qaQuestions.length - 1) {
+    await exitQaSession();
+    return;
+  }
+  qaIndex += 1;
+  renderQaQuestion();
+  await speakQaQuestion();
+}
+
+async function qaGoPrev() {
+  if (phase !== "qa" || qaIndex <= 0) return;
+  stopQaAudio();
+  qaIndex -= 1;
+  renderQaQuestion();
+  await speakQaQuestion();
+}
+
+function processQaTranscript(text) {
+  if (phase !== "qa" || qaAsking || paused) return;
+  const clean = String(text || "").trim();
+  if (!clean) return;
+  sessionTimerService.resetSilenceCounter();
+  hesitationApplied = false;
+  updateLiveTranscript(clean);
+  const prev = qaTranscripts[qaIndex] || "";
+  qaTranscripts[qaIndex] = mergeTranscriptChunk(prev, clean);
+  const words = wordCount(clean);
+  finalWords += words;
+  speakingMs += Math.min(8000, Math.max(400, words * 350));
+  const metrics = vocalMetricsService.ingestTranscript(
+    clean,
+    state().resolvedLanguage
+  );
+  updateMetricHud(metrics || vocalMetricsService.getSnapshot());
+}
+
+/** Avoid double-counting near-duplicate Whisper chunks */
+function mergeTranscriptChunk(prev, chunk) {
+  const clean = String(chunk || "").trim();
+  if (!clean) return prev || "";
+  const prior = String(prev || "").trim();
+  if (!prior) return clean;
+  const priorLower = prior.toLowerCase();
+  const cleanLower = clean.toLowerCase();
+  if (priorLower.endsWith(cleanLower) || priorLower.includes(cleanLower)) {
+    return prior;
+  }
+  // Overlap: last N words of prior == first N of chunk
+  const a = prior.split(/\s+/);
+  const b = clean.split(/\s+/);
+  let overlap = 0;
+  const max = Math.min(8, a.length, b.length);
+  for (let n = max; n >= 2; n--) {
+    const tail = a.slice(-n).join(" ").toLowerCase();
+    const head = b.slice(0, n).join(" ").toLowerCase();
+    if (tail === head) {
+      overlap = n;
+      break;
+    }
+  }
+  if (overlap) return `${prior} ${b.slice(overlap).join(" ")}`.trim();
+  return `${prior} ${clean}`.trim();
 }
 
 function initAudience() {
+  const level = getPitchLevel(state().setup?.pitchLevel);
   audience = createAudienceEngine({
     attentionFill: document.getElementById("attention-fill"),
     attentionValue: document.getElementById("attention-value"),
@@ -86,7 +650,60 @@ function initAudience() {
     audienceRow: document.getElementById("audience-row"),
     reactionHost: document.getElementById("reaction-host"),
     houseEl: document.getElementById("house"),
-    memberCount: 12,
+    memberCount: level.isBoss ? 14 : 12,
+    levelConfig: level,
+  });
+  const badge = document.getElementById("pitch-level-badge");
+  if (badge) {
+    badge.textContent = level.isBoss ? "FINAL BOSS" : level.badge;
+    badge.dataset.boss = level.isBoss ? "1" : "0";
+  }
+  syncHecklerRunToggle();
+  syncMemorizeMode();
+}
+
+function syncHecklerRunToggle() {
+  if (!hecklersRunEl) return;
+  hecklersRunEl.checked = hecklersAreOn();
+}
+
+function memorizeModeOn() {
+  return Boolean(state().setup?.memorizeMode);
+}
+
+function syncMemorizeMode() {
+  const on = memorizeModeOn();
+  if (memorizeRunEl) memorizeRunEl.checked = on;
+  runViewEl?.classList.toggle("memorize-mode", on);
+  if (memorizeHint) {
+    memorizeHint.classList.toggle("hidden", !on);
+  }
+}
+
+if (hecklersRunEl) {
+  hecklersRunEl.addEventListener("change", () => {
+    updateSetup({ hecklersEnabled: hecklersRunEl.checked });
+    if (!hecklersRunEl.checked) {
+      // Stop any in-flight heckle audio when turning off mid-pitch
+      if (heckleAudio) {
+        try {
+          heckleAudio.pause();
+        } catch {
+          /* ignore */
+        }
+        heckleAudio = null;
+      }
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      hesitationApplied = false;
+      sessionTimerService.resetSilenceCounter();
+    }
+  });
+}
+
+if (memorizeRunEl) {
+  memorizeRunEl.addEventListener("change", () => {
+    updateSetup({ memorizeMode: memorizeRunEl.checked });
+    syncMemorizeMode();
   });
 }
 
@@ -94,8 +711,13 @@ function initAudience() {
 
 async function boot() {
   const s = state();
-  if (!hasScript() || !s.slides.length) {
-    window.location.replace("/");
+  pitchSlides = activeScriptSlides();
+  if (!pitchSlides.length) {
+    navigateSafely("/script", { replace: true });
+    return;
+  }
+  if (!s.slides.length) {
+    navigateSafely("/", { replace: true });
     return;
   }
 
@@ -168,7 +790,7 @@ async function boot() {
     audioStream = new MediaStream(mediaStream.getAudioTracks());
   }
 
-  for (let i = 0; i < s.scriptSlides.length; i++) {
+  for (let i = 0; i < pitchSlides.length; i++) {
     slideTimes[i] = 0;
     transcripts[i] = "";
   }
@@ -213,6 +835,7 @@ function startRun() {
   showControls();
   renderSlide();
   startTimers();
+  applyPaceSettingsFromStore();
   audience?.start();
   startSilenceSentinel();
   startVocalMetrics();
@@ -232,24 +855,35 @@ function startRun() {
   }
 }
 
+function applyPaceSettingsFromStore() {
+  const target =
+    Number(state().setup?.paceTargetWpm) ||
+    pacingTelemetry.targetWpm ||
+    155;
+  const bands = pacingTelemetry.configureFromTarget(target);
+  vocalMetricsService.configureFromTarget(bands);
+  return bands;
+}
+
 function startVocalMetrics() {
-  // Fillers / WPM / monotone only — pause decay is owned by PacingTelemetry
+  // Fillers / monotone only — pause + pacing band owned by PacingTelemetry
+  applyPaceSettingsFromStore();
   vocalMetricsService.start({
     onPauseStart: null,
     onPauseTick: null,
     onPauseEnd: null,
     onFiller: (word, total) => {
-      if (phase !== "running" || paused) return;
+      if (!isLivePhase() || paused || qaAsking) return;
       flashFillerWarning(word, total);
       audience?.onFillerHit(word);
     },
-    onRushed: ({ wpm }) => {
-      if (phase !== "running" || paused) return;
-      audience?.onRushed(wpm);
+    onRushed: () => {
+      // PacingTelemetry owns rush penalties — avoid double-hitting attention
+      if (!isLivePhase() || paused || qaAsking) return;
       setMetricState("Rushed", "danger");
     },
     onMonotone: () => {
-      if (phase !== "running" || paused) return;
+      if (!isLivePhase() || paused || qaAsking) return;
       audience?.onMonotone();
       setMetricState("Monotone", "warn");
     },
@@ -260,13 +894,13 @@ function startVocalMetrics() {
 }
 
 function decayAttentionMeter(pauseMs) {
-  if (phase !== "running" || paused) return;
+  if (!isLivePhase() || paused || qaAsking) return;
   audience?.onTextPause(pauseMs);
-  if (pauseMs >= 1500) setMetricState("Pause", "warn");
+  if (pauseMs >= 4000) setMetricState("Pause", "warn");
 }
 
 function onSpeechActivityResumed() {
-  if (phase !== "running") return;
+  if (!isLivePhase() || qaAsking) return;
   audience?.onSpeechResume();
   hesitationApplied = false;
   sessionTimerService.resetSilenceCounter();
@@ -283,6 +917,16 @@ function flashFillerWarning(word, total) {
   flashFillerWarning._t = setTimeout(() => el.classList.remove("show"), 900);
 }
 
+function flashPacingWarning(message, tone = "rush") {
+  const el = document.getElementById("pacing-flash");
+  if (!el) return;
+  el.textContent = message;
+  el.dataset.tone = tone;
+  el.classList.add("show");
+  clearTimeout(flashPacingWarning._t);
+  flashPacingWarning._t = setTimeout(() => el.classList.remove("show"), 1600);
+}
+
 function setMetricState(label, tone) {
   const el = document.getElementById("metric-state");
   if (!el) return;
@@ -291,14 +935,19 @@ function setMetricState(label, tone) {
 }
 
 function updateMetricHud(m) {
+  const pacing = pacingTelemetry.getSnapshot();
+  const wpm = pacing.wpm || m.wpm || 0;
   const wpmEl = document.getElementById("metric-wpm");
-  if (wpmEl) wpmEl.textContent = `${m.wpm || 0} wpm`;
+  if (wpmEl) wpmEl.textContent = `${wpm} wpm`;
   const fillersEl = document.getElementById("metric-fillers");
   if (fillersEl) fillersEl.textContent = `Fillers ${m.fillerTotal || 0}`;
-  const pacing = pacingTelemetry.getSnapshot();
-  if (m.state === "RUSHED") setMetricState("Rushed", "danger");
-  else if (m.state === "MONOTONE") setMetricState("Monotone", "warn");
+  if (pacing.pacingBand === "rush" || m.state === "RUSHED")
+    setMetricState("Rushed", "danger");
+  else if (pacing.pacingBand === "slow") setMetricState("Too slow", "warn");
+  else if (pacing.pacingBand === "healthy") setMetricState("Steady", "steady");
   else if (pacing.pausing) setMetricState("Pause", "warn");
+  else if (m.state === "MONOTONE") setMetricState("Monotone", "warn");
+  else if (pacing.clarity === "clear") setMetricState("Clear", "steady");
   else setMetricState("Steady", "steady");
 }
 
@@ -312,20 +961,23 @@ function updateLiveTranscript(text) {
 }
 
 /** STT text → metrics + attention reset (waveform alone must never reset meters). */
-function processTranscriptChunk(text) {
+function processTranscriptChunk(text, slideIndexHint) {
   const clean = String(text || "").trim();
   if (!clean) return;
 
-  // Belt-and-suspenders: coordinator already registered; keep clocks aligned
-  pacingTelemetry.registerSpeechActivity({ text: clean });
   sessionTimerService.resetSilenceCounter();
   hesitationApplied = false;
 
   updateLiveTranscript(clean);
 
-  const slideIndex = index;
+  const slideIndex =
+    typeof slideIndexHint === "number" &&
+    slideIndexHint >= 0 &&
+    slideIndexHint < transcripts.length
+      ? slideIndexHint
+      : index;
   const prev = transcripts[slideIndex] || "";
-  transcripts[slideIndex] = (prev + " " + clean).trim();
+  transcripts[slideIndex] = mergeTranscriptChunk(prev, clean);
   const words = wordCount(clean);
   finalWords += words;
   speakingMs += Math.min(8000, Math.max(400, words * 350));
@@ -334,21 +986,54 @@ function processTranscriptChunk(text) {
     clean,
     state().resolvedLanguage
   );
-  if (words >= 4 && metrics?.state === "STEADY") {
-    audience?.onGoodStretch();
-  }
+  updateMetricHud(metrics || vocalMetricsService.getSnapshot());
+
+  // Intelligent auto-advance: ≥70% of slide budget + script progress/tail match
+  if (slideIndex === index) maybeAutoAdvanceSlide();
+}
+
+function maybeAutoAdvanceSlide() {
+  if (phase !== "running" || paused || autoAdvanceLock) return;
+  const s = state();
+  const current = pitchSlides[index];
+  if (!current) return;
+  if (index >= pitchSlides.length - 1) return; // never auto-finish
+
+  const ready = shouldAutoAdvanceSlide({
+    slideElapsed,
+    targetSeconds: current.seconds,
+    transcript: transcripts[index] || "",
+    script: current.script || "",
+  });
+  if (!ready) return;
+  if (Date.now() - lastAutoAdvanceAt < 2500) return;
+
+  lastAutoAdvanceAt = Date.now();
+  autoAdvanceLock = true;
+  console.log(
+    `[CrowdWork] Auto-advancing slide ${current.n} (75% + script tail match)`
+  );
+  void goNext().finally(() => {
+    autoAdvanceLock = false;
+  });
 }
 
 /** Silence Sentinel — independent of MediaRecorder chunk delivery */
+function hecklersAreOn() {
+  return state().setup?.hecklersEnabled !== false;
+}
+
 function startSilenceSentinel() {
   hesitationApplied = false;
   sessionTimerService.startTracking(
     (seconds) => {
       if (phase !== "running" || paused) return;
+      if (!hecklersAreOn()) return;
       void fireHeckleStrike(seconds);
     },
     (seconds, flags) => {
       if (phase !== "running" || paused) return;
+      if (!hecklersAreOn()) return;
       if (flags.hesitation && !hesitationApplied) {
         hesitationApplied = true;
         audience?.onHesitationWarning();
@@ -358,10 +1043,11 @@ function startSilenceSentinel() {
 }
 
 async function fireHeckleStrike(silenceSeconds) {
+  if (!hecklersAreOn()) return;
   if (heckleInFlight || phase !== "running") return;
   heckleInFlight = true;
   const s = state();
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   try {
     const live = vocalMetricsService.getSnapshot();
     const payload = await requestHeckle({
@@ -369,6 +1055,7 @@ async function fireHeckleStrike(silenceSeconds) {
       language: s.resolvedLanguage,
       slideScript: current?.script || "",
       transcript: transcripts[index] || "",
+      recentWords: recentSpokenWords(8),
       deckTitle: s.deckTitle,
       fillerTotal: live.fillerTotal || 0,
       deliveryState: live.state || "STEADY",
@@ -380,7 +1067,7 @@ async function fireHeckleStrike(silenceSeconds) {
       stageDirection: payload.stageDirection,
     });
 
-    // Aggressive mid-sentence investor interruption via TTS
+    // Mid-sentence investor interruption via natural TTS
     if (payload.audioBase64) {
       try {
         if (heckleAudio) {
@@ -394,18 +1081,14 @@ async function fireHeckleStrike(silenceSeconds) {
           new Blob([bytes], { type: "audio/mpeg" })
         );
         heckleAudio = new Audio(url);
-        heckleAudio.volume = 0.9;
+        heckleAudio.volume = 0.92;
         await heckleAudio.play();
         heckleAudio.onended = () => URL.revokeObjectURL(url);
       } catch (err) {
         console.warn("heckle audio", err);
       }
     } else if (payload.heckleLine && "speechSynthesis" in window) {
-      const u = new SpeechSynthesisUtterance(payload.heckleLine);
-      u.lang = s.resolvedLanguage === "ru" ? "ru-RU" : "en-US";
-      u.rate = 1.05;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
+      await speakHeckleBrowser(payload.heckleLine, s.resolvedLanguage);
     }
   } catch (err) {
     console.warn("heckle strike", err);
@@ -422,7 +1105,7 @@ function renderScriptStack() {
   if (!stack) return;
   const s = state();
   stack.innerHTML = "";
-  s.scriptSlides.forEach((slide, i) => {
+  pitchSlides.forEach((slide, i) => {
     const card = document.createElement("button");
     card.type = "button";
     card.className = `script-card${i === index ? " active" : ""}${
@@ -434,15 +1117,24 @@ function renderScriptStack() {
       <span class="script-card-body">${escapeHtml(slide.script)}</span>
       <span class="script-card-meta font-utility">${slide.seconds}s</span>`;
     card.addEventListener("click", () => {
-      // Allow jumping only to current/previous for review feel
-      if (i <= index) {
-        index = i;
-        slideElapsed = slideTimes[i] || 0;
-        renderSlide();
-      }
+      // Manual override: jump to any slide thumbnail in the deck rail
+      void jumpToSlide(i);
     });
     stack.appendChild(card);
   });
+}
+
+async function jumpToSlide(targetIndex) {
+  if (phase !== "running") return;
+  const s = state();
+  if (targetIndex < 0 || targetIndex >= pitchSlides.length) return;
+  if (targetIndex === index) return;
+  await flushTranscript();
+  slideTimes[index] = slideElapsed;
+  index = targetIndex;
+  slideElapsed = slideTimes[index] || 0;
+  renderSlide();
+  showControls();
 }
 
 function escapeHtml(str) {
@@ -457,7 +1149,7 @@ function startTimers() {
   cancelAnimationFrame(raf);
   lastTick = null;
   const loop = (now) => {
-    if (phase !== "running") return;
+    if (!isLivePhase()) return;
     if (!paused) {
       if (lastTick == null) lastTick = now;
       const delta = (now - lastTick) / 1000;
@@ -474,9 +1166,33 @@ function startTimers() {
 }
 
 function updateTimers() {
+  if (phase === "qa") {
+    const q = qaQuestions[qaIndex];
+    const answerWords = wordCount(q?.suggestedAnswer || "");
+    const saidWords = wordCount(qaTranscripts[qaIndex] || "");
+    const ratio = answerWords > 0 ? saidWords / answerWords : 0;
+    timerTotal.textContent = `Q${qaIndex + 1}/${qaQuestions.length} · ${formatTime(elapsed)}${
+      paused ? "  Paused" : ""
+    }`;
+    if (budgetFill) {
+      budgetFill.style.width = `${Math.min(100, ratio * 100)}%`;
+      budgetFill.classList.toggle("warn", ratio >= 0.9 && ratio < 1.15);
+      budgetFill.classList.toggle("over", ratio >= 1.15);
+      budgetFill.classList.toggle("auto-ready", ratio >= 0.7 && ratio < 0.9);
+    }
+    if (budgetLabel) {
+      budgetLabel.textContent = `Answer coverage · ~${saidWords}/${answerWords || "—"} words`;
+    }
+    if (btnNext) {
+      const onLast = qaIndex >= qaQuestions.length - 1;
+      btnNext.classList.toggle("is-ready", ratio >= 0.55 && !onLast);
+    }
+    return;
+  }
+
   const s = state();
   const target = s.setup.targetMinutes * 60;
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   timerTotal.textContent = `${formatTime(elapsed)} / ${formatTime(target)}${
     paused ? "  Paused" : ""
   }`;
@@ -484,18 +1200,34 @@ function updateTimers() {
   budgetFill.style.width = `${Math.min(100, ratio * 100)}%`;
   budgetFill.classList.toggle("warn", ratio >= 0.9 && ratio <= 1);
   budgetFill.classList.toggle("over", ratio > 1);
+  budgetFill.classList.toggle("auto-ready", ratio >= 0.7 && ratio < 0.9);
   budgetLabel.textContent = `Slide ${current.n} · ${formatTime(slideElapsed)} / ${formatTime(current.seconds)}`;
+  // Pulse Next when the slide budget is mostly spent
+  if (btnNext) {
+    const onLast = index >= pitchSlides.length - 1;
+    btnNext.classList.toggle("is-ready", ratio >= 0.7 && !onLast);
+  }
+  // Timing gate for intelligent auto-advance (script progress checked on STT chunks)
+  if (ratio >= 0.7) maybeAutoAdvanceSlide();
 }
 
 function renderSlide() {
   const s = state();
-  const current = s.scriptSlides[index];
+  const current = pitchSlides[index];
   const deck = s.slides.find((d) => d.n === current.n);
   stageImg.src = deck?.imageDisplay || "";
   stageScript.textContent = current.script;
   document.getElementById("btn-prev").disabled = index === 0;
-  document.getElementById("btn-next").textContent =
-    index >= s.scriptSlides.length - 1 ? "Finish pitch" : "Next →";
+  const onLast = index >= pitchSlides.length - 1;
+  if (btnNext) {
+    const label = btnNext.querySelector(".stage-next-fab-label");
+    if (label) label.textContent = onLast ? "Finish pitch" : "Next slide";
+    btnNext.classList.toggle("is-finish", onLast);
+    btnNext.setAttribute(
+      "aria-label",
+      onLast ? "Finish pitch" : "Next slide"
+    );
+  }
   updateTimers();
   renderScriptStack();
 }
@@ -515,13 +1247,57 @@ function startRecording() {
 
   sessionCoordinator = new SessionCoordinator();
   sessionCoordinator.start(stream, {
-    shouldRun: () => phase === "running" && !paused && !micDenied,
+    shouldRun: () => isLivePhase() && !paused && !micDenied && !qaAsking,
     getLanguage: () => state().resolvedLanguage || "en",
-    onTranscript: (text) => processTranscriptChunk(text),
+    getWhisperPrompt: () =>
+      phase === "qa" ? whisperPromptForQa() : whisperPromptForSlide(),
+    getSlideIndex: () => (phase === "qa" ? qaIndex : index),
+    hasMicSignal: () => Boolean(waveform?.hasSignal?.()),
+    onTranscript: (text, meta) => {
+      if (phase === "qa") processQaTranscript(text);
+      else processTranscriptChunk(text, meta?.slideIndex);
+    },
+    onClearSpeech: () => {
+      if (!isLivePhase() || paused || qaAsking) return;
+      audience?.onClearSpeech();
+      setMetricState("Clear", "steady");
+    },
+    onUnclearSpeech: () => {
+      if (!isLivePhase() || paused || qaAsking) return;
+      // Mic energy without clean STT — still counts as "not silent" for heckles
+      sessionTimerService.resetSilenceCounter();
+      hesitationApplied = false;
+      audience?.onUnclearSpeech();
+      setMetricState("Unclear", "warn");
+    },
     onSeverePause: (pauseMs) => decayAttentionMeter(pauseMs),
     onSpeechResume: () => onSpeechActivityResumed(),
     onError: (err) => console.warn("[STT]", err),
+    pacingHandlers: {
+      onSteadyPacing: ({ wpm }) => {
+        if (!isLivePhase() || paused || qaAsking) return;
+        audience?.onSteadyPacing(wpm);
+        setMetricState("Steady", "steady");
+      },
+      onRushing: ({ wpm }) => {
+        if (!isLivePhase() || paused || qaAsking) return;
+        flashPacingWarning("Pacing: RUSHING!", "rush");
+        audience?.onRushed(wpm);
+        setMetricState("Rushed", "danger");
+      },
+      onTooSlow: ({ wpm }) => {
+        if (!isLivePhase() || paused || qaAsking) return;
+        flashPacingWarning("Pacing: TOO SLOW!", "slow");
+        audience?.onTooSlow(wpm);
+        setMetricState("Too slow", "warn");
+      },
+      onWpm: (wpm) => {
+        const wpmEl = document.getElementById("metric-wpm");
+        if (wpmEl) wpmEl.textContent = `${wpm || 0} wpm`;
+      },
+    },
   });
+
   sessionTimerService.resetSilenceCounter();
 }
 
@@ -564,23 +1340,26 @@ async function stopRecording() {
 
 async function goNext() {
   const s = state();
-  await flushTranscript();
+  // Advance immediately — never block the click on Whisper flush (was 2–8s lag)
   slideTimes[index] = slideElapsed;
-  if (index >= s.scriptSlides.length - 1) {
-    finishRun();
+  if (index >= pitchSlides.length - 1) {
+    await finishRun();
     return;
   }
   index += 1;
   slideElapsed = 0;
+  sessionTimerService.resetSilenceCounter();
+  hesitationApplied = false;
   renderSlide();
 }
 
 async function goPrev() {
   if (index <= 0) return;
-  await flushTranscript();
   slideTimes[index] = slideElapsed;
   index -= 1;
   slideElapsed = slideTimes[index] || 0;
+  sessionTimerService.resetSilenceCounter();
+  hesitationApplied = false;
   renderSlide();
 }
 
@@ -592,7 +1371,7 @@ async function finishRun() {
   slideTimes[index] = slideElapsed;
 
   const s = state();
-  const slides = s.scriptSlides.map((slide, i) => ({
+  const slides = pitchSlides.map((slide, i) => ({
     n: slide.n,
     actualSeconds: Math.round(slideTimes[i] || 0),
     transcript: transcripts[i] || "",
@@ -621,7 +1400,7 @@ async function finishRun() {
     fillerCounts: mergedFillers,
     fillerTotal: fillerTotal(mergedFillers),
     slidesOverBudget: slides.filter(
-      (r, i) => r.actualSeconds > s.scriptSlides[i].seconds
+      (r, i) => r.actualSeconds > pitchSlides[i].seconds
     ).length,
     slides,
     speakingSeconds,
@@ -678,7 +1457,7 @@ function showReport(report) {
 
   const maxBar = Math.max(
     ...report.slides.map((r, i) =>
-      Math.max(r.actualSeconds, s.scriptSlides[i]?.seconds || 0)
+      Math.max(r.actualSeconds, pitchSlides[i]?.seconds || 0)
     ),
     1
   );
@@ -686,7 +1465,7 @@ function showReport(report) {
   const bars = document.getElementById("timing-bars");
   bars.innerHTML = "";
   report.slides.forEach((r, i) => {
-    const target = s.scriptSlides[i]?.seconds || 0;
+    const target = pitchSlides[i]?.seconds || 0;
     const over = r.actualSeconds > target;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -724,7 +1503,7 @@ function showSlideDetail(n) {
   const s = state();
   const report = s.rehearsalReport;
   const result = report.slides.find((x) => x.n === n);
-  const script = s.scriptSlides.find((x) => x.n === n);
+  const script = pitchSlides.find((x) => x.n === n);
   const deck = s.slides.find((x) => x.n === n);
   const el = document.getElementById("slide-detail");
   el.classList.remove("hidden");
@@ -760,10 +1539,10 @@ async function loadCoach(report) {
       language: s.resolvedLanguage,
       slides: report.slides.map((r, i) => ({
         n: r.n,
-        script: s.scriptSlides[i]?.script || "",
+        script: pitchSlides[i]?.script || "",
         transcript: r.transcript,
         actualSeconds: r.actualSeconds,
-        targetSeconds: s.scriptSlides[i]?.seconds || 0,
+        targetSeconds: pitchSlides[i]?.seconds || 0,
       })),
       attention: att || undefined,
       wpm: report.wpm,
@@ -796,10 +1575,15 @@ function renderCoach(feedback) {
 
 async function loadObjections(report) {
   const body = document.getElementById("objections-body");
+  setQaButtonReady(false);
   const existing = state().objections;
-  if (existing?.questions?.length) {
-    renderObjections(existing.questions);
+  // Prefer a cache that already includes answer scripts for Q&A
+  if (existing?.questions?.length && questionsHaveAnswers(existing.questions)) {
+    renderObjections(normalizeQaQuestions(existing.questions));
     return;
+  }
+  if (existing?.questions?.length && !questionsHaveAnswers(existing.questions)) {
+    setObjections(null);
   }
   const s = state();
   try {
@@ -809,14 +1593,16 @@ async function loadObjections(report) {
       language: s.resolvedLanguage,
       slides: report.slides.map((r, i) => ({
         n: r.n,
-        script: s.scriptSlides[i]?.script || "",
+        script: pitchSlides[i]?.script || "",
         transcript: r.transcript,
       })),
     });
-    setObjections(data);
-    renderObjections(data.questions || []);
+    const questions = normalizeQaQuestions(data.questions);
+    setObjections({ questions });
+    renderObjections(questions);
   } catch (err) {
     body.innerHTML = `<p style="color:var(--muted);font-size:0.875rem">Questions unavailable.</p>`;
+    setQaButtonReady(false);
     toastRetry(err instanceof Error ? err.message : "Objections failed.", () => {
       setObjections(null);
       loadObjections(report);
@@ -826,11 +1612,13 @@ async function loadObjections(report) {
 
 function renderObjections(questions) {
   const body = document.getElementById("objections-body");
-  if (!questions.length) {
+  const list = normalizeQaQuestions(questions);
+  if (!list.length) {
     body.innerHTML = `<p style="color:var(--muted);font-size:0.875rem">No questions returned.</p>`;
+    setQaButtonReady(false);
     return;
   }
-  body.innerHTML = questions
+  body.innerHTML = list
     .map(
       (q) => `
       <div class="objection-item">
@@ -841,6 +1629,7 @@ function renderObjections(questions) {
       </div>`
     )
     .join("");
+  setQaButtonReady(true);
 }
 
 function restartRun() {
@@ -854,19 +1643,45 @@ function restartRun() {
 
 document.getElementById("btn-prev").addEventListener("click", () => {
   showControls();
-  goPrev();
+  if (phase === "qa") void qaGoPrev();
+  else void goPrev();
 });
 document.getElementById("btn-next").addEventListener("click", () => {
   showControls();
-  goNext();
+  if (phase === "qa") void qaGoNext();
+  else void goNext();
 });
 document.getElementById("btn-pause").addEventListener("click", () => {
+  if (!isLivePhase()) return;
   paused = !paused;
   document.getElementById("btn-pause").textContent = paused ? "Resume" : "Pause";
+  if (phase === "qa" && paused) stopQaAudio();
   showControls();
 });
-document.getElementById("btn-restart").addEventListener("click", restartRun);
+document.getElementById("btn-restart").addEventListener("click", () => {
+  if (phase === "qa") {
+    stopQaAudio();
+    qaIndex = 0;
+    qaTranscripts = qaQuestions.map(() => "");
+    elapsed = 0;
+    renderQaQuestion();
+    void speakQaQuestion();
+    return;
+  }
+  restartRun();
+});
 document.getElementById("btn-exit").addEventListener("click", async () => {
+  if (phase === "qa") {
+    await exitQaSession();
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
   await stopRecording();
   if (document.fullscreenElement) {
     try {
@@ -875,28 +1690,82 @@ document.getElementById("btn-exit").addEventListener("click", async () => {
       /* ignore */
     }
   }
-  window.location.href = "/script";
+  navigateSafely("/script");
 });
 
 document.getElementById("btn-again").addEventListener("click", () => {
   setRehearsalReport(null);
   setFeedback(null);
   setObjections(null);
-  window.location.href = "/rehearse";
+  navigateSafely("/rehearse");
 });
 document.getElementById("btn-back-script").addEventListener("click", () => {
-  window.location.href = "/script";
+  navigateSafely("/script");
 });
 document.getElementById("btn-new").addEventListener("click", () => {
   resetAll();
-  window.location.href = "/";
+  navigateSafely("/");
+});
+
+btnQa?.addEventListener("click", () => {
+  void startQaSession();
+});
+document.getElementById("qa-replay")?.addEventListener("click", () => {
+  void speakQaQuestion();
+});
+document.getElementById("qa-mode-mind")?.addEventListener("click", () => {
+  qaMode = "mind";
+  applyQaModeUi();
+  if (document.getElementById("qa-status")?.dataset.state === "your-turn") {
+    setQaStatus(
+      "Your turn — answer out loud from memory. Room is listening.",
+      "your-turn"
+    );
+  }
+});
+document.getElementById("qa-mode-script")?.addEventListener("click", () => {
+  qaMode = "script";
+  applyQaModeUi();
+  if (document.getElementById("qa-status")?.dataset.state === "your-turn") {
+    setQaStatus(
+      "Your turn — say the answer script out loud. Room is listening.",
+      "your-turn"
+    );
+  }
 });
 
 window.addEventListener("mousemove", () => {
-  if (phase === "running") showControls();
+  if (isLivePhase()) showControls();
 });
 
 window.addEventListener("keydown", (e) => {
+  if (phase === "qa") {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      void exitQaSession();
+    } else if (e.key === " " || e.key === "ArrowRight") {
+      e.preventDefault();
+      void qaGoNext();
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      void qaGoPrev();
+    } else if (e.key === "r" || e.key === "R") {
+      e.preventDefault();
+      void speakQaQuestion();
+    } else if (e.key === "m" || e.key === "M") {
+      e.preventDefault();
+      qaMode = "mind";
+      applyQaModeUi();
+    } else if (e.key === "s" || e.key === "S") {
+      e.preventDefault();
+      qaMode = "script";
+      applyQaModeUi();
+    } else if (e.key === "p" || e.key === "P") {
+      e.preventDefault();
+      document.getElementById("btn-pause").click();
+    }
+    return;
+  }
   if (phase !== "running") return;
   if (e.key === "Escape") {
     e.preventDefault();

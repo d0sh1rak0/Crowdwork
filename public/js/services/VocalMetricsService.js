@@ -9,6 +9,10 @@
  */
 
 import pacingTelemetry from "./PacingTelemetry.js";
+import {
+  DEFAULT_PACE_TARGET_WPM,
+  derivePaceBands,
+} from "./paceConfig.js";
 
 const DEFAULT_FILLERS = [
   "uh",
@@ -44,8 +48,8 @@ function wordCount(text) {
 
 class VocalMetricsService {
   constructor() {
-    this.pauseThresholdMs = 1500;
-    this.rushedWpm = 160;
+    this.pauseThresholdMs = 4000;
+    this.rushedWpm = derivePaceBands(DEFAULT_PACE_TARGET_WPM).rushWpm;
     this.windowMs = 10000;
     this.fillers = DEFAULT_FILLERS;
 
@@ -69,6 +73,46 @@ class VocalMetricsService {
       onMonotone: null,
       onMetrics: null,
     };
+  }
+
+  /**
+   * Keep rush threshold aligned with PacingTelemetry / pace tuner.
+   * @param {number|{ rushWpm?: number, targetWpm?: number, fillers?: string[] }} config
+   */
+  configureFromTarget(config = DEFAULT_PACE_TARGET_WPM) {
+    if (typeof config === "number") {
+      this.rushedWpm = derivePaceBands(config).rushWpm;
+    } else if (config?.rushWpm != null) {
+      this.rushedWpm = Number(config.rushWpm) || this.rushedWpm;
+    } else {
+      this.rushedWpm = derivePaceBands(
+        config?.targetWpm ?? DEFAULT_PACE_TARGET_WPM
+      ).rushWpm;
+    }
+    if (Array.isArray(config?.fillers) && config.fillers.length) {
+      this.fillers = config.fillers.map((f) => String(f).toLowerCase());
+    }
+    return this.rushedWpm;
+  }
+
+  /** Course drill calibration — filler list + WPM rush align */
+  configureDrill(telemetry = null) {
+    if (!telemetry) {
+      this.fillers = DEFAULT_FILLERS;
+      return;
+    }
+    if (telemetry.trackFillers === false) {
+      this.fillers = [];
+    } else if (Array.isArray(telemetry.fillerWords) && telemetry.fillerWords.length) {
+      this.fillers = telemetry.fillerWords.map((f) => String(f).toLowerCase());
+    } else {
+      this.fillers = DEFAULT_FILLERS;
+    }
+    if (telemetry.idealWpm?.max != null) {
+      this.rushedWpm = Number(telemetry.idealWpm.max) + 25;
+    } else if (telemetry.targetWpm != null) {
+      this.configureFromTarget(Number(telemetry.targetWpm));
+    }
   }
 
   start(handlers = {}) {
@@ -99,8 +143,9 @@ class VocalMetricsService {
     const clean = String(text || "").trim();
     if (!clean) return null;
 
-    // Keep pacing clock in lockstep with any STT ingest path
-    pacingTelemetry.registerSpeechActivity({ text: clean });
+    // Pause clock only — SessionCoordinator already registered the delta
+    // via registerClearSpeech(). Re-counting here doubled WPM (~300+ spikes).
+    pacingTelemetry.touchSpeechClock();
 
     const now = performance.now();
     const wasPaused = this.pauseActive;
@@ -132,13 +177,13 @@ class VocalMetricsService {
 
     if (wpm >= this.rushedWpm) {
       deliveryState = "RUSHED";
-      if (now - this._lastRushedAt > 4000) {
+      if (now - this._lastRushedAt > 6000) {
         this._lastRushedAt = now;
         this._handlers.onRushed?.({ wpm });
       }
-    } else if (this._isMonotone()) {
+    } else if (this._isMonotone(wpm)) {
       deliveryState = "MONOTONE";
-      if (now - this._lastMonotoneAt > 5000) {
+      if (now - this._lastMonotoneAt > 12000) {
         this._lastMonotoneAt = now;
         this._handlers.onMonotone?.({});
       }
@@ -187,50 +232,46 @@ class VocalMetricsService {
     this._pruneWords(now);
     if (!this.wordEvents.length) return 0;
     const words = this.wordEvents.reduce((a, e) => a + e.n, 0);
-    const spanMs = Math.max(
-      1000,
-      now - (this.wordEvents[0]?.t || now) 
-    );
-    // Use full 10s window once we have enough history, else actual span
-    const windowUsed = Math.min(this.windowMs, Math.max(spanMs, 3000));
-    return Math.round((words / windowUsed) * 60000);
+    // Stable rolling window denominator (never divide by sub-second spans)
+    const windowSeconds = Math.max(1, this.windowMs / 1000);
+    return Math.round((words / windowSeconds) * 60);
   }
 
-  _isMonotone() {
-    // Need several recent chunks with similar length + regular spacing
-    if (this.chunkMeta.length < 4) return false;
-    const recent = this.chunkMeta.slice(-6);
-    const wordLens = recent.map((c) => c.words);
+  _isMonotone(wpm = 0) {
+    // Whisper slices arrive on a fixed cadence — do NOT treat chunk timing as
+    // speaker rhythm (that falsely flags every steady talker as monotone).
+    // Only flag when lexical shape is extremely flat over a long stretch,
+    // and never while the speaker is already in a healthy pace band.
+    if (this.chunkMeta.length < 10) return false;
+    const snap = pacingTelemetry.getSnapshot?.() || {};
+    const healthyMin = snap.healthyMin ?? derivePaceBands(DEFAULT_PACE_TARGET_WPM).healthyMin;
+    const healthyMax = snap.healthyMax ?? derivePaceBands(DEFAULT_PACE_TARGET_WPM).healthyMax;
+    if (wpm >= healthyMin && wpm <= healthyMax) return false;
+    // Soft shoulders: also skip while PacingTelemetry already says healthy/idle
+    if (snap.pacingBand === "healthy" || snap.pacingBand === "idle") return false;
+
+    const recent = this.chunkMeta.slice(-12);
+    const wordLens = recent.map((c) => c.words).filter((n) => n > 0);
+    if (wordLens.length < 8) return false;
     const mean =
       wordLens.reduce((a, b) => a + b, 0) / Math.max(1, wordLens.length);
-    if (mean < 3) return false;
+    if (mean < 5) return false;
     const variance =
       wordLens.reduce((a, w) => a + (w - mean) ** 2, 0) / wordLens.length;
     const std = Math.sqrt(variance);
 
-    // Interval regularity
-    const intervals = [];
-    for (let i = 1; i < recent.length; i++) {
-      intervals.push(recent[i].t - recent[i - 1].t);
-    }
-    const iMean =
-      intervals.reduce((a, b) => a + b, 0) / Math.max(1, intervals.length);
-    const iVar =
-      intervals.reduce((a, v) => a + (v - iMean) ** 2, 0) /
-      Math.max(1, intervals.length);
-    const iStd = Math.sqrt(iVar);
-
-    // Flat vocabulary: similar avg word length
-    const aw = recent.map((c) => c.avgWordLen);
+    // Flat vocabulary: similar avg word length across many chunks
+    const aw = recent.map((c) => c.avgWordLen).filter((n) => n > 0);
+    if (aw.length < 8) return false;
     const awMean = aw.reduce((a, b) => a + b, 0) / aw.length;
     const awStd = Math.sqrt(
       aw.reduce((a, v) => a + (v - awMean) ** 2, 0) / aw.length
     );
 
-    const flatLength = std / mean < 0.22;
-    const regularPace = iMean > 0 && iStd / iMean < 0.28;
-    const flatLexicon = awStd < 0.55;
-    return flatLength && regularPace && flatLexicon;
+    // Much stricter than before — only near-robotic sameness
+    const flatLength = std / mean < 0.12;
+    const flatLexicon = awStd < 0.28;
+    return flatLength && flatLexicon;
   }
 
   _evaluatePause() {

@@ -131,11 +131,11 @@ function makePlaceholderSlide(title, body) {
   ctx.fillRect(64, 72, 80, 4);
 
   ctx.fillStyle = "#F2EDE3";
-  ctx.font = "600 48px Instrument Sans, system-ui, sans-serif";
+  ctx.font = "600 48px -apple-system, BlinkMacSystemFont, SF Pro Display, system-ui, sans-serif";
   ctx.fillText(title, 64, 140);
 
   ctx.fillStyle = "#96938B";
-  ctx.font = "28px Instrument Sans, system-ui, sans-serif";
+  ctx.font = "28px -apple-system, BlinkMacSystemFont, SF Pro Display, system-ui, sans-serif";
   const lines = wrapText(ctx, body.replace(/\s+/g, " ").trim(), 1150, 12);
   let y = 210;
   for (const line of lines) {

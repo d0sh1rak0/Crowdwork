@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="/" />
+    <title>Drill — CrowdWork AI</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <link rel="icon" href="/logo.svg" />
+  </head>
+  <body class="game-skin">
+    <div id="secure-context-banner" class="secure-context-banner" role="alert" hidden></div>
+
+    <div id="drill-root" class="drill-root">
+      <header class="site-header drill-header">
+        <a class="brand" href="/course">
+          <img src="/logo.svg" alt="CrowdWork AI" width="36" height="36" />
+          <span class="brand-text">
+            <span class="brand-name">CrowdWork</span>
+            <span class="brand-ai">AI</span>
+          </span>
+        </a>
+        <button id="drill-exit" class="btn btn-ghost btn-sm" type="button">Exit</button>
+      </header>
+
+      <main class="drill-stage">
+        <p id="drill-badge" class="drill-badge font-utility">LESSON</p>
+        <h1 id="drill-title" class="drill-title">Loading…</h1>
+        <p id="drill-focus" class="drill-focus"></p>
+        <p id="drill-prompt" class="drill-prompt"></p>
+        <p id="drill-test-brief" class="drill-test-brief hidden"></p>
+
+        <div class="drill-meters">
+          <div class="drill-meter">
+            <span class="font-utility">WPM</span>
+            <strong id="drill-wpm">0</strong>
+            <span id="drill-wpm-band" class="drill-band">—</span>
+          </div>
+          <div class="drill-meter">
+            <span class="font-utility">Fillers</span>
+            <strong id="drill-fillers">0</strong>
+          </div>
+          <div class="drill-meter">
+            <span class="font-utility">Pauses</span>
+            <strong id="drill-pauses">0</strong>
+          </div>
+          <div class="drill-meter">
+            <span class="font-utility">Time</span>
+            <strong id="drill-time">0:00</strong>
+          </div>
+        </div>
+
+        <div id="drill-vision-panel" class="drill-vision-panel hidden">
+          <div class="drill-cam-wrap">
+            <video id="drill-cam" playsinline muted autoplay></video>
+            <div id="drill-vision-status" class="drill-vision-status font-utility">Camera ready</div>
+          </div>
+          <div class="drill-live-criteria" id="drill-live-criteria"></div>
+        </div>
+
+        <div class="wave-panel drill-wave" aria-label="Live microphone waveform">
+          <div class="wave-head">
+            <span class="wave-label">Mic</span>
+            <span id="drill-state" class="metric-pill">Ready</span>
+          </div>
+          <div class="wave-canvas-wrap">
+            <canvas id="drill-wave-canvas" width="480" height="64"></canvas>
+          </div>
+          <div class="live-hearing">
+            <p class="live-hearing-label font-utility">What I’m hearing</p>
+            <p id="drill-transcript" class="live-transcript">Tap Start when ready…</p>
+          </div>
+        </div>
+
+        <div id="boss-checks" class="boss-checks hidden"></div>
+
+        <div class="drill-actions">
+          <button id="drill-start" class="btn btn-primary" type="button">Start drill</button>
+          <button id="drill-stop" class="btn btn-outline" type="button" disabled>Stop &amp; evaluate</button>
+        </div>
+        <p id="drill-hint" class="drill-hint"></p>
+      </main>
+    </div>
+
+    <div id="drill-hud" class="drill-hud" aria-live="assertive"></div>
+
+    <div id="drill-result" class="course-modal hidden" role="dialog" aria-modal="true">
+      <div class="course-modal-backdrop"></div>
+      <div class="course-modal-panel">
+        <p class="course-kicker font-utility">Result</p>
+        <h2 id="result-title" class="course-modal-title">Drill complete</h2>
+        <p id="result-body" class="course-modal-body"></p>
+        <div id="result-criteria" class="result-criteria"></div>
+        <div class="course-modal-actions">
+          <button id="result-again" class="btn btn-outline" type="button">Try again</button>
+          <a id="result-back" class="btn btn-primary" href="/course">Back to course</a>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/js/boot-security.js"></script>
+    <script type="module" src="/js/course-drill-page.js"></script>
+  </body>
+</html>

@@ -88,8 +88,9 @@ function personSVG(skin, shirt) {
       </g>
       <path class="mouth" d="M27 34 Q32 36 37 34" fill="none" stroke="#1a1208" stroke-width="1.4" stroke-linecap="round"/>
       <g class="phone" opacity="0">
-        <rect x="40" y="44" width="8" height="14" rx="1.5" fill="#111"/>
-        <rect x="41" y="45.5" width="6" height="9" rx="0.5" fill="#3a4a5a"/>
+        <rect x="38" y="40" width="10" height="18" rx="2" fill="#0d0d0f" stroke="#555" stroke-width="0.6"/>
+        <rect x="39.2" y="42" width="7.6" height="12" rx="0.8" fill="#4a7ab5"/>
+        <circle cx="43" cy="55.5" r="1.1" fill="#888"/>
       </g>
       <g class="laugh-marks" opacity="0">
         <text x="46" y="22" font-size="10" fill="#F2A33C">ha</text>
@@ -105,13 +106,23 @@ export function createAudienceEngine({
   reactionHost,
   houseEl,
   memberCount = 12,
+  levelConfig = null,
 }) {
-  let attention = 78;
+  const level = levelConfig || {
+    startAttention: 84,
+    pauseDecay: 0.65,
+    rushPenalty: 5,
+    fillerPenalty: 5,
+    steadyBonus: 4,
+    difficultyMult: 1,
+  };
+  let attention = level.startAttention;
   let silenceMs = 0;
   let speakingMsWindow = 0;
   let lastReactionAt = 0;
   let lastRecoverAt = 0;
   let lastLoseAt = 0;
+  let lastClearBonusAt = 0;
   let pauseLatched = false;
   let samples = [];
   let events = { pauses: 0, fillers: 0, laughs: 0 };
@@ -195,19 +206,20 @@ export function createAudienceEngine({
     el.classList.toggle("is-confused", mood === "confused" || mood === "expectant");
   }
 
-  /** Silence Sentinel — 3s hesitation: ENGAGED → CONFUSED / EXPECTANT */
+  /** Silence Sentinel — hesitation: soft nudge, not a meter dump */
   function onHesitationWarning() {
-    attention = clamp(attention - 5);
+    attention = clamp(attention - 2.5);
     attentionFill.dataset.mood = "drifting";
     attentionLabel.textContent = "Hesitation";
     attentionLabel.dataset.mood = "drifting";
     if (houseEl) houseEl.dataset.mood = "confused";
     members.forEach((m, i) => {
       setPersonMood(m, i % 2 === 0 ? "confused" : "expectant");
-      m.restless = Math.min(12, m.restless + 2);
+      m.restless = Math.min(14, m.restless + 1);
+      if (i % 3 === 0) m.el.classList.add("on-phone");
     });
-    pushReaction("pause", pick(["…", "waiting", "go on?", "hmm"]));
-    roomAudio.setTension(0.55);
+    pushReaction("pause", pick(["…", "waiting", "phone?", "hmm"]));
+    roomAudio.setTension(0.45);
     renderAttention();
   }
 
@@ -227,11 +239,11 @@ export function createAudienceEngine({
     const mood = map[state] || "restless";
 
     if (state === "HECKLE" || state === "RESTLESS") {
-      attention = clamp(attention - (state === "HECKLE" ? 14 : 10));
+      attention = clamp(attention - (state === "HECKLE" ? 8 : 5));
       events.pauses += 1;
       triggerGiggleWave(state === "HECKLE");
     } else {
-      attention = clamp(attention - 6);
+      attention = clamp(attention - 2);
     }
 
     if (houseEl) {
@@ -328,7 +340,19 @@ export function createAudienceEngine({
     members.forEach((m) => {
       const local = moodFromAttention(attention + m.bias - m.restless);
       setPersonMood(m, local);
-      m.el.classList.toggle("on-phone", local === "checked" || (local === "drifting" && m.restless > 4));
+      const onPhone =
+        local === "checked" ||
+        (local === "drifting" && m.restless > 2) ||
+        (local === "listening" && m.restless > 7 && Math.random() < 0.02);
+      m.el.classList.toggle("on-phone", onPhone);
+      m.el.classList.toggle(
+        "is-bored",
+        local === "drifting" || local === "checked"
+      );
+      m.el.classList.toggle(
+        "is-look-away",
+        local === "checked" || (local === "drifting" && m.restless > 5)
+      );
     });
 
     // Crossing into lose-the-room triggers laughs
@@ -358,23 +382,44 @@ export function createAudienceEngine({
   function lifeTick() {
     // Micro-behaviors so the house never feels frozen
     const mood = moodFromAttention(attention);
-    members.forEach((m) => {
-      if (Math.random() < 0.08) {
+    members.forEach((m, i) => {
+      if (Math.random() < 0.12) {
         m.el.classList.add("is-shift");
         setTimeout(() => m.el.classList.remove("is-shift"), 500);
       }
       if (mood === "drifting" || mood === "checked") {
-        m.restless = Math.min(12, m.restless + (Math.random() < 0.3 ? 1 : 0));
+        m.restless = Math.min(14, m.restless + (Math.random() < 0.45 ? 1 : 0));
+        // Pull phones more aggressively when bored
+        if (Math.random() < (mood === "checked" ? 0.55 : 0.28)) {
+          m.el.classList.add("on-phone");
+        }
+        if (mood === "checked" && i % 3 === 0 && Math.random() < 0.25) {
+          m.el.classList.add("is-arms-crossed");
+          setTimeout(() => m.el.classList.remove("is-arms-crossed"), 1800);
+        }
+      } else if (mood === "listening") {
+        m.restless = Math.max(0, m.restless - 0.25);
       } else {
-        m.restless = Math.max(0, m.restless - 0.4);
+        m.restless = Math.max(0, m.restless - 0.55);
+        m.el.classList.remove("on-phone", "is-bored", "is-look-away");
       }
     });
 
-    if (mood === "checked" && Math.random() < 0.35) {
-      triggerGiggleWave(Math.random() < 0.4);
-    } else if (mood === "drifting" && Math.random() < 0.18) {
+    // Soft ceiling — don’t pin forever at 100, but don’t bleed while strong
+    if (attention >= 96) {
+      attention = clamp(attention - 0.2);
+    } else if (attention >= 90 && mood === "locked") {
+      attention = clamp(attention - 0.08);
+    }
+
+    if (mood === "checked" && Math.random() < 0.4) {
+      triggerGiggleWave(Math.random() < 0.45);
+      if (Math.random() < 0.35) {
+        pushReaction("lose", pick(["phone out", "scrolling", "checked out", "lol"]));
+      }
+    } else if (mood === "drifting" && Math.random() < 0.22) {
       triggerGiggleWave(false);
-      pushReaction("murmur");
+      pushReaction("murmur", pick(["phone?", "whisper", "side chat", "…"]));
     }
 
     renderAttention();
@@ -388,18 +433,26 @@ export function createAudienceEngine({
     /* no-op for attention — kept for API compatibility */
   }
 
-  /** Precise text-gap pause from VocalMetrics (≥ 1.5s since last Whisper words). */
+  /** Precise text-gap pause from Whisper (≥ pause threshold, throttled ~1/sec). */
   function onTextPause(pauseMs) {
-    if (pauseMs < 1500) return;
+    if (pauseMs < 4000) return;
     if (!pauseLatched) {
       pauseLatched = true;
       events.pauses += 1;
-      attention = clamp(attention - 4);
-      pushReaction("pause", pick(["…", "waiting", "breath held", "go on?"]));
+      attention = clamp(attention - 2);
+      pushReaction("pause", pick(["…", "waiting", "phone check", "go on?"]));
+      members.forEach((m, i) => {
+        if (i % 4 === 0) m.el.classList.add("on-phone");
+      });
     } else {
-      // ~2.5 attention pts / sec after the precision threshold
-      attention = clamp(attention - 0.25);
-      if (pauseMs >= 2800 && pauseMs < 3000 && attention < 55) {
+      // Ongoing decay — once per throttled callback (~1/s)
+      attention = clamp(attention - level.pauseDecay);
+      if (pauseMs >= 6000 && attention < 55) {
+        members.forEach((m) => {
+          if (Math.random() < 0.35) m.el.classList.add("on-phone", "is-bored");
+        });
+      }
+      if (pauseMs >= 7000 && pauseMs < 7200 && attention < 48) {
         triggerGiggleWave(false);
       }
     }
@@ -411,11 +464,14 @@ export function createAudienceEngine({
     if (pauseLatched) {
       pauseLatched = false;
       const now = performance.now();
-      if (now - lastRecoverAt > 3000) {
+      if (now - lastRecoverAt > 2200) {
         lastRecoverAt = now;
         pushReaction("recover");
         roomAudio.hush();
         attention = clamp(attention + 3);
+        members.forEach((m) => {
+          m.el.classList.remove("on-phone", "is-bored", "is-look-away");
+        });
       }
     }
     silenceMs = 0;
@@ -425,7 +481,7 @@ export function createAudienceEngine({
 
   function onFillerHit(word) {
     events.fillers += 1;
-    attention = clamp(attention - 9);
+    attention = clamp(attention - level.fillerPenalty);
     pushReaction("filler", word ? `“${word}”` : undefined);
     // Negative crowd shift: look away / cross arms
     members.forEach((m, i) => {
@@ -436,26 +492,26 @@ export function createAudienceEngine({
         }, 1200);
       }
     });
-    if (attention < 60) triggerGiggleWave(attention < 40);
+    if (attention < 45) triggerGiggleWave(attention < 30);
     renderAttention();
   }
 
-  /** High-velocity panic > 160 WPM */
+  /** High-velocity panic > rush threshold */
   function onRushed(wpm) {
-    attention = clamp(attention - 8);
+    attention = clamp(attention - level.rushPenalty);
     if (houseEl) houseEl.dataset.delivery = "rushed";
     members.forEach((m) => {
       m.el.classList.add("is-lean-back");
       setTimeout(() => m.el.classList.remove("is-lean-back"), 1400);
     });
     pushReaction("lose", wpm ? `${wpm} wpm` : "too fast");
-    roomAudio.setTension(0.7);
+    roomAudio.setTension(0.55);
     renderAttention();
   }
 
   /** Flat delivery — boredom / yawn */
   function onMonotone() {
-    attention = clamp(attention - 6);
+    attention = clamp(attention - 3);
     if (houseEl) houseEl.dataset.delivery = "monotone";
     members.forEach((m, i) => {
       m.el.classList.add("is-bored");
@@ -465,13 +521,86 @@ export function createAudienceEngine({
       }, 1600);
     });
     pushReaction("murmur", pick(["yawn", "flat", "zoning out", "zzz"]));
-    roomAudio.setTension(0.5);
+    roomAudio.setTension(0.35);
     renderAttention();
   }
 
   function onGoodStretch() {
-    attention = clamp(attention + 2.5);
+    attention = clamp(attention + 3);
     if (houseEl) houseEl.dataset.delivery = "steady";
+    renderAttention();
+  }
+
+  /** Sustained healthy WPM across a sampling block */
+  function onSteadyPacing(wpm) {
+    attention = clamp(attention + level.steadyBonus);
+    if (houseEl) houseEl.dataset.delivery = "steady";
+    members.forEach((m) => {
+      m.el.classList.remove(
+        "is-look-away",
+        "is-arms-crossed",
+        "is-lean-back",
+        "is-bored"
+      );
+      m.el.classList.add("is-engaged");
+      setTimeout(() => m.el.classList.remove("is-engaged"), 1200);
+    });
+    pushReaction("recover", wpm ? `${wpm} wpm` : "steady pace");
+    roomAudio.setTension(0.15);
+    renderAttention();
+  }
+
+  /** Confident STT — modest, throttled so the meter doesn’t pin at 100. */
+  function onClearSpeech() {
+    const now = performance.now();
+    if (now - lastClearBonusAt < 3200) {
+      members.forEach((m) => {
+        m.el.classList.remove("is-confused", "is-arms-crossed");
+      });
+      return;
+    }
+    lastClearBonusAt = now;
+    attention = clamp(attention + 2);
+    if (houseEl) houseEl.dataset.delivery = "steady";
+    members.forEach((m, i) => {
+      m.el.classList.remove(
+        "is-look-away",
+        "is-arms-crossed",
+        "is-confused",
+        "on-phone",
+        "is-bored"
+      );
+      if (i % 2 === 0) m.el.classList.add("is-welcoming");
+      setTimeout(() => m.el.classList.remove("is-welcoming"), 1100);
+    });
+    renderAttention();
+  }
+
+  /** Mic energy but empty / junk STT */
+  function onUnclearSpeech() {
+    attention = clamp(attention - 1.5);
+    if (houseEl) houseEl.dataset.delivery = "unclear";
+    members.forEach((m, i) => {
+      if (i % 3 === 0) {
+        m.el.classList.add("is-confused", "on-phone");
+        setTimeout(() => {
+          m.el.classList.remove("is-confused");
+        }, 1200);
+      }
+    });
+    pushReaction("confused", pick(["huh?", "say again?", "muddy", "lost it"]));
+    renderAttention();
+  }
+
+  function onTooSlow(wpm) {
+    attention = clamp(attention - 2.5);
+    if (houseEl) houseEl.dataset.delivery = "slow";
+    members.forEach((m, i) => {
+      m.el.classList.add("is-bored");
+      if (i % 3 === 0) m.el.classList.add("on-phone");
+      setTimeout(() => m.el.classList.remove("is-bored"), 1600);
+    });
+    pushReaction("murmur", wpm ? `${wpm} wpm` : "too slow");
     renderAttention();
   }
 
@@ -493,7 +622,7 @@ export function createAudienceEngine({
   }
 
   function reset() {
-    attention = 78;
+    attention = level.startAttention;
     silenceMs = 0;
     speakingMsWindow = 0;
     pauseLatched = false;
@@ -531,6 +660,10 @@ export function createAudienceEngine({
     onRushed,
     onMonotone,
     onGoodStretch,
+    onSteadyPacing,
+    onClearSpeech,
+    onUnclearSpeech,
+    onTooSlow,
     onHesitationWarning,
     applyCrowdState,
     getSnapshot,

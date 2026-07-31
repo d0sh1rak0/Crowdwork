@@ -1,4 +1,5 @@
 import NetworkClient from "./utilities/NetworkClient.js";
+import { throwFromResponse } from "./utilities/ApiErrors.js";
 import { toast } from "./utils.js";
 
 async function parseError(res) {
@@ -11,8 +12,14 @@ async function parseError(res) {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
+  const external = options.signal;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onExternalAbort = () => controller.abort();
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener("abort", onExternalAbort, { once: true });
+  }
   try {
     return await NetworkClient.fetch(url, {
       ...options,
@@ -20,29 +27,48 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
     });
   } catch (err) {
     if (err?.name === "AbortError") {
+      if (external?.aborted) throw err;
       throw new Error("Script generation timed out. Try fewer slides or retry.");
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    external?.removeEventListener("abort", onExternalAbort);
   }
 }
 
-export async function generateScript(payload) {
+/**
+ * @param {object} payload
+ * @param {{ signal?: AbortSignal }} [options]
+ */
+export async function generateScript(payload, options = {}) {
   // Large decks + slide images can take a while; hard-cap so UI never spins forever
   const slideCount = payload?.slides?.length || 1;
   const timeoutMs = Math.min(180000, 45000 + slideCount * 8000);
-  const res = await fetchWithTimeout(
-    "/api/generate-script",
-    {
-      method: "POST",
-      headers: NetworkClient.getJsonHeaders(),
-      body: JSON.stringify(payload),
-    },
-    timeoutMs
-  );
-  if (!res.ok) throw new Error(await parseError(res));
-  return res.json();
+  console.time("[Script Pipeline Performance]/fetch");
+  try {
+    const res = await fetchWithTimeout(
+      "/api/generate-script",
+      {
+        method: "POST",
+        headers: NetworkClient.getJsonHeaders(),
+        body: JSON.stringify(payload),
+        signal: options.signal,
+      },
+      timeoutMs
+    );
+    if (!res.ok) await throwFromResponse(res);
+    const data = await res.json();
+    console.timeEnd("[Script Pipeline Performance]/fetch");
+    return data;
+  } catch (err) {
+    try {
+      console.timeEnd("[Script Pipeline Performance]/fetch");
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
 }
 
 export async function fetchFeedback(payload) {
@@ -68,13 +94,14 @@ export async function fetchObjections(payload) {
 /**
  * @param {Blob|FormData} blobOrForm
  * @param {string} [language]
- * @param {{ mimeType?: string, filename?: string }} [meta]
+ * @param {{ mimeType?: string, filename?: string, prompt?: string }} [meta]
  */
 export async function transcribeAudio(blobOrForm, language, meta = {}) {
   let form;
   if (blobOrForm instanceof FormData) {
     form = blobOrForm;
     if (!form.has("language") && language) form.append("language", language);
+    if (meta.prompt && !form.has("prompt")) form.append("prompt", meta.prompt);
   } else {
     const mimeType = meta.mimeType || blobOrForm?.type || "audio/webm";
     const filename = meta.filename || "recording.webm";
@@ -82,11 +109,11 @@ export async function transcribeAudio(blobOrForm, language, meta = {}) {
       `[API] POST /api/transcribe → mimeType=${mimeType} size=${blobOrForm?.size ?? 0}B file=${filename}`
     );
     form = new FormData();
-    // Prefer "file" (Whisper-style) and keep "audio" for backward compatibility
+    // Single field only — duplicate file+audio confused some proxies/multer paths
     form.append("file", blobOrForm, filename);
-    form.append("audio", blobOrForm, filename);
     form.append("language", language || "en");
-    form.append("mimeType", mimeType);
+    form.append("mimeType", mimeType.split(";")[0].trim());
+    if (meta.prompt) form.append("prompt", String(meta.prompt).slice(0, 800));
   }
 
   const res = await NetworkClient.fetch("/api/transcribe", {
@@ -97,14 +124,27 @@ export async function transcribeAudio(blobOrForm, language, meta = {}) {
   return res.json();
 }
 
-export async function speakText(text, language) {
+export async function speakText(text, language, options = {}) {
+  const body = { text, language };
+  if (options.speed != null) body.speed = options.speed;
   const res = await NetworkClient.fetch("/api/speak", {
     method: "POST",
     headers: NetworkClient.getJsonHeaders(),
-    body: JSON.stringify({ text, language }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.blob();
+}
+
+/** AI pace recommendation / better-worse verdict for the pre-start tuner */
+export async function fetchPaceAdvice(payload) {
+  const res = await NetworkClient.fetch("/api/pace-advice", {
+    method: "POST",
+    headers: NetworkClient.getJsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
 }
 
 /** Silence Sentinel → Gemini crowd override (+ optional heckle TTS). */

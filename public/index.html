@@ -1,34 +1,73 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <base href="/" />
-    <title>Crowdwork — Write the talk. Rehearse the stage.</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <title>CrowdWork AI — Pitch under the lights</title>
     <link rel="stylesheet" href="/css/app.css" />
     <link rel="icon" href="/logo.svg" />
   </head>
-  <body>
+  <body class="game-skin">
     <div id="secure-context-banner" class="secure-context-banner" role="alert" hidden></div>
     <header class="site-header">
       <a class="brand" href="/">
-        <img src="/logo.svg" alt="" width="28" height="28" />
-        Crowdwork
+        <img src="/logo.svg" alt="CrowdWork AI" width="36" height="36" />
+        <span class="brand-text">
+          <span class="brand-name">CrowdWork</span>
+          <span class="brand-ai">AI</span>
+        </span>
       </a>
+      <nav class="course-nav">
+        <a class="btn btn-course" href="/course">Course</a>
+      </nav>
     </header>
 
-    <main class="page">
-      <div class="hero-glow" aria-hidden="true"></div>
-      <h1 class="page-title">Crowdwork</h1>
+    <main class="page page-game">
+      <div class="hero-glow hero-glow-game" aria-hidden="true"></div>
+      <div class="hero-mark" aria-hidden="true">
+        <img src="/logo.svg" alt="" width="120" height="120" />
+      </div>
+      <h1 class="page-title page-title-game">CrowdWork AI</h1>
       <p class="page-sub">
-        Turn a deck into a spoken script. Then pitch it under the lights — with a live audience.
+        Build a speaking habit under the lights — for students, classrooms, and
+        startup founders. Climb levels. Face the Final Boss.
       </p>
+
+      <div class="home-course-cta">
+        <a class="btn btn-course btn-course-lg" href="/course">
+          Open Charisma Course
+        </a>
+        <p class="home-course-cta-sub">
+          12 lessons · 3 boss challenges · presence, voice &amp; impact
+        </p>
+      </div>
+
+      <div
+        id="context-banner"
+        class="context-banner hidden"
+        role="alert"
+        hidden
+      ></div>
+
+      <section class="levels-panel" aria-label="Pitch levels">
+        <div class="levels-head">
+          <p class="levels-kicker">Habit campaign</p>
+          <h2 class="levels-title">Pick your difficulty</h2>
+          <p class="levels-sub">
+            Build speaking habits like a game — for students, classrooms, and startup founders.
+          </p>
+        </div>
+        <div id="pitch-levels" class="levels-grid"></div>
+        <label class="heckle-toggle" for="hecklers-enabled">
+          <input id="hecklers-enabled" type="checkbox" checked />
+          <span class="heckle-toggle-ui" aria-hidden="true"></span>
+          <span class="heckle-toggle-copy">
+            <span class="heckle-toggle-title">Investor hecklers</span>
+            <span class="heckle-toggle-sub">Interrupt on dead air — turn off for calm practice</span>
+          </span>
+        </label>
+      </section>
 
       <div
         id="upload-zone"
@@ -37,11 +76,29 @@
         tabindex="0"
         aria-label="Upload PDF deck"
       >
-        <h2>Drop your deck PDF</h2>
-        <p>Or click to browse · one file · ≤ 20 MB · ≤ 40 pages</p>
-        <p class="hint">
-          Have a .pptx? Export it as PDF first — File → Export → PDF.
-        </p>
+        <div class="upload-zone-idle" data-upload-idle>
+          <h2>Drop your deck PDF</h2>
+          <p>Or click to browse · one file · ≤ 20 MB · ≤ 40 pages</p>
+          <p class="hint">
+            Have a .pptx? Export it as PDF first — File → Export → PDF.
+          </p>
+        </div>
+        <div class="upload-zone-success" data-upload-success hidden>
+          <span class="upload-check" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="1.5" />
+              <path
+                d="M8.5 14.2L12.2 17.8L19.5 10.2"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <h2>Successful Upload!</h2>
+          <p>Your deck is registered — finish setup below.</p>
+        </div>
         <input id="file-input" type="file" accept="application/pdf,.pdf" hidden />
       </div>
       <p id="upload-error" class="error-inline hidden" role="alert"></p>
@@ -87,6 +144,7 @@ The ask."
             <option>Sales demo</option>
             <option>Conference talk</option>
             <option>University defense</option>
+            <option>Habit challenge / school</option>
             <option>Other</option>
           </select>
           <input
@@ -121,7 +179,7 @@ The ask."
           <input
             id="audience"
             class="input"
-            placeholder="3 judges, mixed technical background"
+            placeholder="Students, founders, class challenge"
           />
         </div>
 
@@ -135,8 +193,8 @@ The ask."
           ></textarea>
         </div>
 
-        <button id="write-btn" class="btn btn-primary btn-lg" type="submit">
-          Write my script
+        <button id="write-btn" class="btn btn-primary btn-lg btn-game" type="submit">
+          Enter the arena — write my script
         </button>
       </form>
     </main>

@@ -4,17 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <base href="/" />
-    <title>Pitch — Crowdwork</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <title>Pitch — CrowdWork AI</title>
     <link rel="stylesheet" href="/css/app.css" />
     <link rel="icon" href="/logo.svg" />
   </head>
-  <body>
+  <body class="game-skin">
     <div id="secure-context-banner" class="secure-context-banner" role="alert" hidden></div>
     <div id="stage-root" class="stage">
       <div id="countdown-view">
@@ -31,6 +25,15 @@
       </div>
 
       <div id="run-view" class="run-view hidden">
+        <div id="pitch-level-badge" class="pitch-level-badge" data-boss="0">LVL 2</div>
+        <label class="heckle-run-toggle" for="hecklers-run" title="Toggle investor hecklers">
+          <input id="hecklers-run" type="checkbox" checked />
+          <span>Hecklers</span>
+        </label>
+        <label class="memorize-run-toggle" for="memorize-run" title="Hide script on stage">
+          <input id="memorize-run" type="checkbox" />
+          <span>Memorize</span>
+        </label>
         <div id="mic-banner" class="mic-banner hidden">
           Pitching without mic / camera — timers only
         </div>
@@ -47,6 +50,15 @@
           </div>
         </aside>
 
+        <!-- Audience faces the pitcher at eye level (top of stage) -->
+        <section id="house" class="house house-top" data-mood="listening" aria-label="Live audience">
+          <div class="house-glow" aria-hidden="true"></div>
+          <div class="house-rail" aria-hidden="true"></div>
+          <p class="house-caption">Your audience</p>
+          <div id="audience-row" class="house-row"></div>
+          <div id="reaction-host" class="house-reactions"></div>
+        </section>
+
         <div class="stage-content pitch-layout">
           <aside class="script-rail" aria-label="Script slides">
             <p class="script-rail-label">Script</p>
@@ -59,7 +71,41 @@
               <div class="budget-bar"><div id="budget-fill" class="budget-fill"></div></div>
               <p id="budget-label" class="budget-label"></p>
             </div>
+
+            <!-- Q&A overlays the slide area: AI asks, you speak the answer -->
+            <div id="qa-panel" class="qa-panel hidden">
+              <p class="qa-progress font-utility">
+                Question <span id="qa-index">1</span> / <span id="qa-total">5</span>
+              </p>
+              <p class="qa-eyebrow">Investor asks</p>
+              <h2 id="qa-question" class="qa-question-live">…</h2>
+              <p id="qa-why" class="qa-why"></p>
+              <p id="qa-status" class="qa-status" aria-live="polite">Getting ready…</p>
+              <div class="qa-mode-row" role="group" aria-label="Answer mode">
+                <button id="qa-mode-mind" class="qa-mode is-active" type="button">From mind</button>
+                <button id="qa-mode-script" class="qa-mode" type="button">Show script</button>
+              </div>
+              <button id="qa-replay" class="btn btn-ghost btn-sm qa-replay" type="button">
+                Replay question
+              </button>
+            </div>
+
             <p id="stage-script" class="stage-script"></p>
+            <p id="memorize-hint" class="memorize-hint hidden" aria-live="polite">
+              Memorize mode — speak from memory. Script is hidden.
+            </p>
+            <p id="qa-mind-hint" class="qa-mind-hint hidden" aria-live="polite">
+              Answer out loud from memory — your reply script is hidden.
+            </p>
+            <button
+              id="btn-next"
+              class="stage-next-fab"
+              type="button"
+              aria-label="Next slide"
+            >
+              <span class="stage-next-fab-label">Next slide</span>
+              <span class="stage-next-fab-arrow" aria-hidden="true">→</span>
+            </button>
           </div>
 
           <div class="pitch-side">
@@ -80,6 +126,7 @@
                 <span id="metric-fillers" class="metric-pill muted">Fillers 0</span>
               </div>
               <div id="filler-flash" class="filler-flash" aria-live="polite"></div>
+              <div id="pacing-flash" class="pacing-flash" aria-live="assertive"></div>
               <div class="live-hearing" aria-live="polite">
                 <p class="live-hearing-label font-utility">What I’m hearing</p>
                 <p id="live-transcript" class="live-transcript">Listening…</p>
@@ -88,21 +135,14 @@
           </div>
         </div>
 
-        <!-- Living house audience — front of the room -->
-        <section id="house" class="house" data-mood="listening" aria-label="Live audience">
-          <div class="house-glow" aria-hidden="true"></div>
-          <div class="house-rail" aria-hidden="true"></div>
-          <p class="house-caption">The room</p>
-          <div id="audience-row" class="house-row"></div>
-          <div id="reaction-host" class="house-reactions"></div>
-        </section>
-
         <div id="controls" class="stage-controls">
-          <button id="btn-prev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
-          <button id="btn-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
-          <button id="btn-restart" class="btn btn-ghost btn-sm" type="button">Restart</button>
-          <button id="btn-next" class="btn btn-primary btn-sm" type="button">Next →</button>
-          <button id="btn-exit" class="btn btn-outline btn-sm" type="button">Exit</button>
+          <div class="stage-controls-main">
+            <button id="btn-prev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
+            <button id="btn-pause" class="btn btn-ghost btn-sm" type="button">Pause</button>
+            <button id="btn-restart" class="btn btn-ghost btn-sm" type="button">Restart</button>
+            <button id="btn-exit" class="btn btn-outline btn-sm" type="button">Exit</button>
+          </div>
+          <p class="stage-keys font-utility" aria-hidden="true">Space · next slide</p>
         </div>
       </div>
     </div>
@@ -110,9 +150,15 @@
     <div id="report-root" class="hidden">
       <header class="site-header">
         <a class="brand" href="/">
-          <img src="/logo.svg" alt="" width="28" height="28" />
-          Crowdwork
+          <img src="/logo.svg" alt="CrowdWork AI" width="36" height="36" />
+          <span class="brand-text">
+            <span class="brand-name">CrowdWork</span>
+            <span class="brand-ai">AI</span>
+          </span>
         </a>
+        <nav class="course-nav">
+          <a class="btn btn-course btn-sm" href="/course">Course</a>
+        </nav>
       </header>
       <main class="report">
         <h1 id="verdict" class="verdict"></h1>
@@ -161,7 +207,11 @@
         </section>
 
         <div class="action-row" style="margin-top: 2.5rem">
-          <button id="btn-again" class="btn btn-primary" type="button">Pitch again</button>
+          <button id="btn-qa" class="btn btn-primary" type="button" disabled title="Practice tough questions with AI voice">
+            Q&amp;A
+          </button>
+          <a class="btn btn-course" href="/course">Course</a>
+          <button id="btn-again" class="btn btn-outline" type="button">Pitch again</button>
           <button id="btn-back-script" class="btn btn-outline" type="button">Back to script</button>
           <button id="btn-new" class="btn btn-ghost" type="button">New deck</button>
         </div>
