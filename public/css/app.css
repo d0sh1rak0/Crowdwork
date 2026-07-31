@@ -61,12 +61,194 @@ a:hover {
 .site-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 0.6rem;
   height: 56px;
   padding: 0 1.25rem;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 90%, transparent);
   backdrop-filter: blur(6px);
+}
+.site-header > .brand {
+  margin-right: auto;
+}
+
+/* ---- Auth HUD (Google sign-in / profile chip) ---- */
+.auth-hud {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 3rem;
+  height: 36px;
+}
+.btn-google {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 36px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #0a0a0a;
+  color: var(--text);
+  font-family: var(--font-utility);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.btn-google:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--boss) 55%, transparent);
+  background: #111;
+}
+.btn-google:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+.auth-gicon {
+  flex: none;
+}
+.auth-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--boss) 30%, transparent);
+  border-top-color: var(--boss);
+  animation: auth-spin 0.7s linear infinite;
+}
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.auth-skeleton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 36px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #0a0a0a;
+}
+.auth-skeleton-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  animation: auth-pulse 1.2s ease-in-out infinite;
+}
+.auth-skeleton-bar {
+  width: 72px;
+  height: 10px;
+  border-radius: 5px;
+  background: #1a1a1a;
+  animation: auth-pulse 1.2s ease-in-out infinite;
+}
+@keyframes auth-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.auth-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 36px;
+  padding: 0 0.65rem 0 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #0a0a0a;
+  color: var(--text);
+  font-family: var(--font-utility);
+  font-size: 0.8rem;
+  cursor: pointer;
+  max-width: 15rem;
+  transition: border-color 0.15s ease;
+}
+.auth-chip:hover {
+  border-color: color-mix(in srgb, var(--boss) 55%, transparent);
+}
+.auth-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+.auth-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--boss) 24%, #111);
+  color: var(--boss);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+.auth-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-caret {
+  flex: none;
+  color: var(--muted);
+}
+.auth-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 120;
+  min-width: 13rem;
+  padding: 0.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #0a0a0a;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+.auth-menu-email {
+  margin: 0 0 0.4rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.5rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-utility);
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.auth-menu-item:hover {
+  background: color-mix(in srgb, var(--boss) 14%, transparent);
+  color: var(--boss);
+}
+@media (max-width: 560px) {
+  .auth-name {
+    display: none;
+  }
+  .btn-google span {
+    display: none;
+  }
+  .btn-google {
+    padding: 0 0.6rem;
+  }
 }
 
 .brand {
