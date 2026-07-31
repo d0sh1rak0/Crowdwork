@@ -514,7 +514,7 @@ async function startQaSession() {
   reportRoot.classList.add("hidden");
   stageRoot.classList.remove("hidden");
   countdownView.classList.add("hidden");
-  runView.classList.remove("hidden");
+  runView.classList.remove("hidden", "memorize-mode");
   runView.classList.add("visible", "qa-mode");
   document.getElementById("qa-panel")?.classList.remove("hidden");
   if (micDenied || camDenied) micBanner.classList.remove("hidden");
