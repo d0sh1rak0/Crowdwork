@@ -251,6 +251,209 @@ a:hover {
   }
 }
 
+/* ---- Level & XP progression badge ---- */
+.lvl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #0a0a0a;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s ease;
+  white-space: nowrap;
+}
+.lvl-badge:hover {
+  border-color: color-mix(in srgb, var(--boss) 55%, transparent);
+}
+.lvl-pill {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: #000;
+  background: var(--boss);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-weight: 700;
+}
+.lvl-meter {
+  position: relative;
+  width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: #1a1a1a;
+  overflow: hidden;
+}
+.lvl-meter i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--boss), #ffea79);
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lvl-meter.big {
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+}
+.lvl-xp {
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.lvl-modal-meter {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.75rem 0 1rem;
+}
+.lvl-modal-meter .font-utility {
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+.lvl-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.lvl-stat {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #080808;
+  padding: 0.65rem 0.75rem;
+  display: grid;
+  gap: 0.15rem;
+}
+.lvl-stat strong {
+  font-size: 1.25rem;
+  color: var(--boss);
+  font-family: var(--font-display);
+}
+.lvl-stat span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.lvl-lesson-list {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-utility);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+}
+
+/* ---- Level-up celebration ---- */
+.levelup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  animation: levelup-fade-in 0.25s ease-out;
+  pointer-events: none;
+}
+.levelup-overlay.leaving {
+  animation: levelup-fade-out 0.6s ease-in forwards;
+}
+.levelup-card {
+  position: relative;
+  text-align: center;
+  padding: 2.2rem 3rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--boss) 65%, transparent);
+  background: radial-gradient(ellipse at 50% 0%, rgba(255, 214, 10, 0.16), transparent 70%), #050505;
+  box-shadow: 0 0 60px rgba(255, 214, 10, 0.35);
+  animation: levelup-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.levelup-burst {
+  font-size: 2rem;
+  color: var(--boss);
+  animation: levelup-spin 1.6s ease-in-out infinite;
+}
+.levelup-kicker {
+  margin: 0.4rem 0 0.2rem;
+  font-size: 1rem;
+  letter-spacing: 0.35em;
+  color: var(--boss);
+  font-weight: 800;
+}
+.levelup-title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+.levelup-title strong {
+  color: var(--boss);
+}
+@keyframes levelup-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes levelup-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes levelup-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes levelup-spin {
+  0%,
+  100% {
+    transform: rotate(-12deg) scale(1);
+  }
+  50% {
+    transform: rotate(12deg) scale(1.25);
+  }
+}
+
+/* ---- Course lock banner ---- */
+.course-lock-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.15rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--boss) 45%, transparent);
+  background: rgba(255, 214, 10, 0.06);
+  text-align: left;
+}
+.course-lock-icon {
+  font-size: 1.5rem;
+  flex: none;
+}
+.course-lock-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+.course-lock-copy strong {
+  color: var(--boss);
+}
+.course-lock-copy span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.course-locked .unit-tabs,
+.course-locked .unit-detail {
+  filter: grayscale(0.7) brightness(0.55);
+  pointer-events: none;
+  user-select: none;
+}
+
 .brand {
   display: inline-flex;
   align-items: center;

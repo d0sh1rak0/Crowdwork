@@ -24,6 +24,17 @@ import {
   signOut,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-auth.js";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  onSnapshot,
+  increment,
+  arrayUnion,
+  serverTimestamp,
+} from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
 
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
@@ -42,6 +53,21 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 /** Shared Auth instance. */
 export const auth = getAuth(app);
+
+/** Shared Firestore instance. */
+export const db = getFirestore(app);
+
+// Re-export Firestore primitives so app code imports everything from here.
+export {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  onSnapshot,
+  increment,
+  arrayUnion,
+  serverTimestamp,
+};
 
 /**
  * Sign in with Google via popup.

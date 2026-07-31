@@ -27,6 +27,7 @@ import {
   activeScriptSlides,
 } from "./store.js";
 import { detectFillers, fillerTotal, formatTime, wordCount } from "./utils.js";
+import progression from "./services/ProgressionService.js";
 
 const stageRoot = document.getElementById("stage-root");
 const countdownView = document.getElementById("countdown-view");
@@ -1410,6 +1411,23 @@ async function finishRun() {
   };
 
   setRehearsalReport(report);
+
+  // XP reward engine — completing a live rehearsal session earns XP.
+  // First-ever session: +100 XP (Level 1 + course unlock). Otherwise
+  // +20 XP, plus +10 bonus when average WPM stayed in the 120–150 band.
+  try {
+    if (report.totalSeconds >= 20 && report.finalWordCount > 5) {
+      const award = progression.recordSessionComplete({ wpm: report.wpm });
+      const bits = [`+${award.gained} XP`];
+      if (award.isFirst) bits.push("First session!");
+      if (award.wpmBonus) bits.push("WPM bonus");
+      xpToast(bits.join(" · "));
+      // Level-up celebration overlay is rendered by LevelBadge.js
+    }
+  } catch (err) {
+    console.warn("[rehearse] XP award failed", err);
+  }
+
   if (document.fullscreenElement) {
     try {
       await document.exitFullscreen();
@@ -1418,6 +1436,20 @@ async function finishRun() {
     }
   }
   showReport(report);
+}
+
+function xpToast(msg) {
+  let host = document.querySelector(".toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "toast-host";
+    document.body.appendChild(host);
+  }
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 3600);
 }
 
 function verdictLine(total, target) {

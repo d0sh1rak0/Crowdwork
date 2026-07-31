@@ -1,49 +1,25 @@
 /**
- * Durable course progress (XP, unlocks, completions) for Charisma & Speech Mastery.
- * Uses localStorage so progress survives tab close — separate from deck sessionStorage.
+ * Course progress facade for Charisma & Speech Mastery.
+ * All XP / completion state is owned by ProgressionService (localStorage
+ * for anonymous users, Firestore `users/{uid}` with realtime sync when
+ * signed in). This module keeps the original synchronous API used by the
+ * course pages.
  */
 
-const STORAGE_KEY = "crowdwork-course-progress-v1";
+import progression from "../services/ProgressionService.js";
 
 /** @typedef {{ completedLessons: string[], completedBosses: string[], questDone: string[], totalXp: number, unitBadges: string[] }} CourseProgress */
 
-function blankProgress() {
-  return {
-    completedLessons: [],
-    completedBosses: [],
-    questDone: [],
-    totalXp: 0,
-    unitBadges: [],
-  };
-}
-
 /** @returns {CourseProgress} */
 export function loadCourseProgress() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return blankProgress();
-    const parsed = JSON.parse(raw);
-    return {
-      ...blankProgress(),
-      ...parsed,
-      completedLessons: Array.isArray(parsed.completedLessons)
-        ? parsed.completedLessons
-        : [],
-      completedBosses: Array.isArray(parsed.completedBosses)
-        ? parsed.completedBosses
-        : [],
-      questDone: Array.isArray(parsed.questDone) ? parsed.questDone : [],
-      unitBadges: Array.isArray(parsed.unitBadges) ? parsed.unitBadges : [],
-      totalXp: Number(parsed.totalXp) || 0,
-    };
-  } catch {
-    return blankProgress();
-  }
-}
-
-/** @param {CourseProgress} progress */
-export function saveCourseProgress(progress) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+  const p = progression.profile;
+  return {
+    completedLessons: [...p.completedLessons],
+    completedBosses: [...p.completedBosses],
+    questDone: [...p.questDone],
+    unitBadges: [...p.unitBadges],
+    totalXp: p.xp,
+  };
 }
 
 export async function fetchCurriculum() {
@@ -105,39 +81,25 @@ export function isBossUnlocked(curriculum, progress, bossId) {
 }
 
 export function completeLesson(curriculum, lessonId, { quest = false } = {}) {
-  const progress = loadCourseProgress();
   const found = findLesson(curriculum, lessonId);
-  if (!found) return progress;
-  const { lesson } = found;
-  let gained = 0;
-  if (!progress.completedLessons.includes(lessonId)) {
-    progress.completedLessons.push(lessonId);
-    gained += Number(lesson.xp) || 0;
-  }
-  if (quest && !progress.questDone.includes(lessonId)) {
-    progress.questDone.push(lessonId);
-  }
-  progress.totalXp += gained;
-  saveCourseProgress(progress);
-  return { progress, gained };
+  if (!found) return { progress: loadCourseProgress(), gained: 0 };
+  const { gained } = progression.completeLesson(
+    lessonId,
+    Number(found.lesson.xp) || 0,
+    { quest }
+  );
+  return { progress: loadCourseProgress(), gained };
 }
 
 export function completeBoss(curriculum, bossId) {
-  const progress = loadCourseProgress();
   const found = findBoss(curriculum, bossId);
-  if (!found) return { progress, gained: 0 };
-  const { boss, unit } = found;
-  let gained = 0;
-  if (!progress.completedBosses.includes(bossId)) {
-    progress.completedBosses.push(bossId);
-    gained += Number(boss.xp) || 0;
-    if (!progress.unitBadges.includes(unit.id)) {
-      progress.unitBadges.push(unit.id);
-    }
-  }
-  progress.totalXp += gained;
-  saveCourseProgress(progress);
-  return { progress, gained };
+  if (!found) return { progress: loadCourseProgress(), gained: 0 };
+  const { gained } = progression.completeBoss(
+    bossId,
+    Number(found.boss.xp) || 0,
+    found.unit.id
+  );
+  return { progress: loadCourseProgress(), gained };
 }
 
 export function unitProgress(unit, progress) {

@@ -10,11 +10,20 @@ import {
   unitProgress,
 } from "./course/courseStore.js";
 import { navigateSafely } from "./store.js";
+import progression from "./services/ProgressionService.js";
 
 let curriculum = null;
 let progress = loadCourseProgress();
 let activeUnitId = null;
 let modalTarget = null; // { kind: 'lesson'|'boss', id }
+const lockBanner = document.getElementById("course-lock-banner");
+const pageMain = document.querySelector(".course-page");
+
+function applyGate() {
+  const unlocked = progression.isCourseUnlocked();
+  lockBanner?.classList.toggle("hidden", unlocked);
+  pageMain?.classList.toggle("course-locked", !unlocked);
+}
 
 const unitTabs = document.getElementById("unit-tabs");
 const unitDetail = document.getElementById("unit-detail");
@@ -255,9 +264,18 @@ async function boot() {
     curriculum = await fetchCurriculum();
     progress = loadCourseProgress();
     activeUnitId = curriculum.units[0]?.id;
+    applyGate();
     renderXp();
     renderTabs();
     renderUnit();
+    // Realtime: Firestore snapshots / awards re-render the dashboard
+    progression.subscribe(() => {
+      progress = loadCourseProgress();
+      applyGate();
+      renderXp();
+      renderTabs();
+      renderUnit();
+    });
   } catch (err) {
     if (unitDetail) {
       unitDetail.innerHTML = `<p class="page-sub">${
