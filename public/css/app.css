@@ -1052,68 +1052,70 @@ a:hover {
   color: var(--muted);
 }
 
-/* —— Post-pitch Q&A session —— */
-.qa-root {
-  min-height: 100vh;
-  background:
-    radial-gradient(
-      ellipse 70% 50% at 50% 30%,
-      color-mix(in srgb, var(--amber) 22%, transparent) 0%,
-      transparent 65%
-    ),
-    #000;
-}
-.qa-root.hidden {
+/* —— Post-pitch Q&A on the live stage (attention / mic / audience stay on) —— */
+.run-view.qa-mode .script-rail,
+.run-view.qa-mode .stage-slide,
+.run-view.qa-mode .heckle-run-toggle,
+.run-view.qa-mode .memorize-run-toggle,
+.run-view.qa-mode .memorize-hint {
   display: none !important;
 }
-.qa-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-inline: 1rem;
+.run-view.qa-mode .qa-panel {
+  display: block;
 }
-.qa-stage {
-  max-width: 42rem;
+.run-view.qa-mode .pitch-main .stage-script {
+  margin-top: 0.75rem;
+  max-width: 40rem;
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+}
+.run-view.qa-mode.qa-mind .stage-script {
+  display: none !important;
+}
+.qa-panel {
+  display: none;
+  width: 100%;
+  max-width: 40rem;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 4rem;
   text-align: center;
 }
+.qa-panel.hidden {
+  display: none !important;
+}
 .qa-progress {
-  margin: 0 0 1.25rem;
-  font-size: 0.78rem;
+  margin: 0 0 0.65rem;
+  font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
 }
 .qa-eyebrow {
-  margin: 0 0 0.5rem;
-  font-size: 0.8rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--amber);
 }
-.qa-question {
-  margin: 0 0 1rem;
+.qa-question-live {
+  margin: 0 0 0.65rem;
   font-family: var(--font-display);
-  font-size: clamp(1.45rem, 4.2vw, 2.15rem);
+  font-size: clamp(1.25rem, 3.2vw, 1.85rem);
   font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 1.25;
+  line-height: 1.3;
   color: var(--text);
 }
 .qa-why {
-  margin: 0 auto 1.25rem;
-  max-width: 34rem;
-  font-size: 0.92rem;
-  line-height: 1.45;
+  margin: 0 auto 0.75rem;
+  max-width: 32rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
   color: var(--muted);
 }
 .qa-status {
-  margin: 0 0 1.75rem;
-  min-height: 1.4em;
+  margin: 0 0 1rem;
+  min-height: 1.35em;
   font-family: var(--font-utility);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--amber-hi);
 }
 .qa-status[data-state="speaking"] {
@@ -1128,9 +1130,9 @@ a:hover {
 }
 .qa-mode-row {
   display: inline-flex;
-  gap: 0.35rem;
-  padding: 0.3rem;
-  margin-bottom: 1.25rem;
+  gap: 0.3rem;
+  padding: 0.28rem;
+  margin-bottom: 0.65rem;
   border: 1px solid color-mix(in srgb, var(--amber) 28%, var(--border));
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.35);
@@ -1138,11 +1140,11 @@ a:hover {
 .qa-mode {
   border: 0;
   border-radius: 999px;
-  padding: 0.55rem 1.15rem;
+  padding: 0.5rem 1rem;
   background: transparent;
   color: var(--muted);
   font-family: var(--font-utility);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1152,48 +1154,20 @@ a:hover {
   background: color-mix(in srgb, var(--amber) 22%, transparent);
   color: var(--amber-hi);
 }
+.qa-replay {
+  display: inline-flex;
+  margin-bottom: 0.25rem;
+}
 .qa-mind-hint {
-  margin: 0 auto 1.5rem;
+  margin: 0.75rem auto 0;
   max-width: 28rem;
+  text-align: center;
   font-size: 0.9rem;
   color: var(--muted);
   line-height: 1.4;
 }
-.qa-mind-hint.hidden,
-.qa-answer-panel.hidden {
+.qa-mind-hint.hidden {
   display: none !important;
-}
-.qa-answer-panel {
-  margin: 0 auto 1.75rem;
-  max-width: 36rem;
-  padding: 1.15rem 1.25rem;
-  text-align: left;
-  border-top: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--amber) 8%, transparent),
-    transparent
-  );
-}
-.qa-answer-label {
-  margin: 0 0 0.5rem;
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--amber);
-}
-.qa-answer {
-  margin: 0;
-  font-size: 1.05rem;
-  line-height: 1.55;
-  color: var(--text);
-}
-.qa-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.65rem;
 }
 #btn-qa:disabled {
   opacity: 0.45;

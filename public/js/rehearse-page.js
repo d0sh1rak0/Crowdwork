@@ -32,7 +32,6 @@ const stageRoot = document.getElementById("stage-root");
 const countdownView = document.getElementById("countdown-view");
 const runView = document.getElementById("run-view");
 const reportRoot = document.getElementById("report-root");
-const qaRoot = document.getElementById("qa-root");
 const countdownText = document.getElementById("countdown-text");
 const dim = document.getElementById("dim");
 const micNote = document.getElementById("mic-note");
@@ -85,13 +84,21 @@ let unsubPacing = null;
 let autoAdvanceLock = false;
 let lastAutoAdvanceAt = 0;
 
-/** Post-pitch Q&A session state */
+/** Post-pitch Q&A session state (runs on the live stage) */
 let qaQuestions = [];
 let qaIndex = 0;
 /** @type {"mind" | "script"} */
 let qaMode = "mind";
 let qaAudio = null;
 let qaSpeakToken = 0;
+/** True while the AI voice is asking — STT is paused so TTS isn't scored */
+let qaAsking = false;
+/** Per-question spoken answers captured during Q&A */
+let qaTranscripts = [];
+
+function isLivePhase() {
+  return phase === "running" || phase === "qa";
+}
 
 function state() {
   return getState();
@@ -191,6 +198,7 @@ function speakHeckleBrowser(text, language) {
 
 function stopQaAudio() {
   qaSpeakToken += 1;
+  qaAsking = false;
   if (qaAudio) {
     try {
       qaAudio.pause();
@@ -256,44 +264,85 @@ function questionsHaveAnswers(questions) {
   );
 }
 
+function whisperPromptForQa() {
+  const q = qaQuestions[qaIndex];
+  if (!q) return "";
+  const recent = String(qaTranscripts[qaIndex] || "")
+    .split(/\s+/)
+    .slice(-8)
+    .join(" ");
+  return `${q.question} ${q.suggestedAnswer} ${recent}`
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
+}
+
 function applyQaModeUi() {
   const mindBtn = document.getElementById("qa-mode-mind");
   const scriptBtn = document.getElementById("qa-mode-script");
-  const panel = document.getElementById("qa-answer-panel");
   const hint = document.getElementById("qa-mind-hint");
   mindBtn?.classList.toggle("is-active", qaMode === "mind");
   scriptBtn?.classList.toggle("is-active", qaMode === "script");
-  panel?.classList.toggle("hidden", qaMode !== "script");
+  runViewEl?.classList.toggle("qa-mind", qaMode === "mind");
+  // stage-script holds the answer you must say back
+  if (stageScript) {
+    const q = qaQuestions[qaIndex];
+    stageScript.textContent = q?.suggestedAnswer || "";
+    stageScript.classList.toggle("hidden", qaMode === "mind");
+  }
   hint?.classList.toggle("hidden", qaMode !== "mind");
 }
 
 function renderQaQuestion() {
   const q = qaQuestions[qaIndex];
   if (!q) return;
-  document.getElementById("qa-index").textContent = String(qaIndex + 1);
-  document.getElementById("qa-total").textContent = String(qaQuestions.length);
-  document.getElementById("qa-question").textContent = q.question;
+  const idxEl = document.getElementById("qa-index");
+  const totEl = document.getElementById("qa-total");
+  const qEl = document.getElementById("qa-question");
+  if (idxEl) idxEl.textContent = String(qaIndex + 1);
+  if (totEl) totEl.textContent = String(qaQuestions.length);
+  if (qEl) qEl.textContent = q.question;
   const whyEl = document.getElementById("qa-why");
   const whyBits = [];
   if (q.whyItMatters) whyBits.push(q.whyItMatters);
   if (q.slideHint) whyBits.push(`Slide ${q.slideHint}`);
-  whyEl.textContent = whyBits.join(" · ");
-  document.getElementById("qa-answer").textContent = q.suggestedAnswer;
-  const nextBtn = document.getElementById("qa-next");
-  if (nextBtn) {
-    nextBtn.textContent =
-      qaIndex >= qaQuestions.length - 1 ? "Finish Q&A" : "Next question";
+  if (whyEl) whyEl.textContent = whyBits.join(" · ");
+
+  // What you must say back = answer script (visible only in Show script)
+  if (stageScript) stageScript.textContent = q.suggestedAnswer;
+
+  if (btnNext) {
+    const label = btnNext.querySelector(".stage-next-fab-label");
+    const onLast = qaIndex >= qaQuestions.length - 1;
+    if (label) label.textContent = onLast ? "Finish Q&A" : "Next question";
+    btnNext.classList.toggle("is-finish", onLast);
+    btnNext.setAttribute(
+      "aria-label",
+      onLast ? "Finish Q&A" : "Next question"
+    );
   }
+  const prevBtn = document.getElementById("btn-prev");
+  if (prevBtn) prevBtn.disabled = qaIndex === 0;
+
+  liveTranscriptParts = [];
+  const liveEl = document.getElementById("live-transcript");
+  if (liveEl) {
+    liveEl.textContent = qaTranscripts[qaIndex] || "Listening…";
+    liveEl.classList.toggle("has-text", Boolean(qaTranscripts[qaIndex]));
+  }
+  slideElapsed = 0;
   applyQaModeUi();
+  updateTimers();
 }
 
 async function speakQaQuestion() {
   const q = qaQuestions[qaIndex];
-  if (!q) return;
+  if (!q || phase !== "qa") return;
   stopQaAudio();
   const token = qaSpeakToken;
   const language = state().resolvedLanguage || "en";
-  setQaStatus("Investor is asking…", "speaking");
+  qaAsking = true;
+  setQaStatus("Investor is asking… listen, then answer.", "speaking");
   try {
     try {
       const blob = await speakText(q.question, language, { speed: 1 });
@@ -319,12 +368,84 @@ async function speakQaQuestion() {
     console.warn("[qa] speak failed", err);
   }
   if (token !== qaSpeakToken) return;
+  qaAsking = false;
+  // Touch pause clock so attention doesn't dump right as your turn starts
+  pacingTelemetry.touchSpeechClock?.();
+  sessionTimerService.resetSilenceCounter();
   setQaStatus(
     qaMode === "script"
-      ? "Your turn — use the answer script, or switch to From mind."
-      : "Your turn — answer out loud from memory.",
+      ? "Your turn — say the answer script out loud. Room is listening."
+      : "Your turn — answer out loud from memory. Room is listening.",
     "your-turn"
   );
+}
+
+async function ensureMediaForLive() {
+  const liveAudio = mediaStream
+    ?.getAudioTracks?.()
+    .some((t) => t.readyState === "live");
+  if (liveAudio) {
+    if (!audioStream) {
+      audioStream = new MediaStream(mediaStream.getAudioTracks());
+    }
+    if (!camDenied && mediaStream.getVideoTracks().length) {
+      camVideo.srcObject = mediaStream;
+      camFallback.classList.add("hidden");
+      try {
+        await camVideo.play();
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
+  micDenied = true;
+  camDenied = true;
+  mediaStream = null;
+  audioStream = null;
+  const secureOk = NetworkClient.checkHardwareSecurity();
+  if (!secureOk || !navigator.mediaDevices?.getUserMedia) {
+    micDenied = true;
+    camDenied = true;
+    return;
+  }
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+      video: {
+        facingMode: "user",
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
+    });
+    micDenied = mediaStream.getAudioTracks().length === 0;
+    camDenied = mediaStream.getVideoTracks().length === 0;
+  } catch {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micDenied = false;
+      camDenied = true;
+    } catch {
+      mediaStream = null;
+      micDenied = true;
+      camDenied = true;
+    }
+  }
+  if (mediaStream && !camDenied) {
+    camVideo.srcObject = mediaStream;
+    camFallback.classList.add("hidden");
+    try {
+      await camVideo.play();
+    } catch {
+      /* ignore */
+    }
+  } else {
+    camFallback.classList.remove("hidden");
+  }
+  if (mediaStream && !micDenied) {
+    audioStream = new MediaStream(mediaStream.getAudioTracks());
+  }
 }
 
 async function startQaSession() {
@@ -335,7 +456,6 @@ async function startQaSession() {
   btnQa && (btnQa.disabled = true);
 
   let questions = normalizeQaQuestions(state().objections?.questions);
-  // Old cache without answer scripts → regenerate
   if (!questionsHaveAnswers(state().objections?.questions)) {
     setObjections(null);
     questions = [];
@@ -375,35 +495,122 @@ async function startQaSession() {
   qaQuestions = questions;
   qaIndex = 0;
   qaMode = "mind";
+  qaAsking = false;
+  qaTranscripts = questions.map(() => "");
+  paused = false;
+  elapsed = 0;
+  slideElapsed = 0;
+
+  await ensureMediaForLive();
+  initAudience();
+
+  try {
+    await document.documentElement.requestFullscreen();
+  } catch {
+    /* optional */
+  }
+
   phase = "qa";
-
   reportRoot.classList.add("hidden");
-  stageRoot.classList.add("hidden");
-  qaRoot.classList.remove("hidden");
-  window.scrollTo(0, 0);
+  stageRoot.classList.remove("hidden");
+  countdownView.classList.add("hidden");
+  runView.classList.remove("hidden");
+  runView.classList.add("visible", "qa-mode");
+  document.getElementById("qa-panel")?.classList.remove("hidden");
+  if (micDenied || camDenied) micBanner.classList.remove("hidden");
+  else micBanner.classList.add("hidden");
 
+  const badge = document.getElementById("pitch-level-badge");
+  if (badge) badge.textContent = "Q&A";
+
+  const pauseBtn = document.getElementById("btn-pause");
+  if (pauseBtn) pauseBtn.textContent = "Pause";
+  const exitBtn = document.getElementById("btn-exit");
+  if (exitBtn) exitBtn.textContent = "Exit Q&A";
+  const keys = document.querySelector(".stage-keys");
+  if (keys) keys.textContent = "Space · next question";
+
+  applyPaceSettingsFromStore();
+  audience?.start();
+  startVocalMetrics();
+  startTimers();
+  showControls();
   renderQaQuestion();
+
+  if (!micDenied) {
+    startRecording();
+    const waveCanvas = document.getElementById("wave-canvas");
+    if (waveCanvas) {
+      waveform?.stop?.();
+      waveform = new WaveformVisualizer(waveCanvas);
+      waveform.init(audioStream || mediaStream);
+      void waveform.resume?.();
+    }
+    document.querySelector(".wave-panel")?.classList.remove("wave-offline");
+  } else {
+    document.querySelector(".wave-panel")?.classList.add("wave-offline");
+  }
+
+  window.scrollTo(0, 0);
   await speakQaQuestion();
 }
 
-function exitQaSession() {
+async function exitQaSession() {
   stopQaAudio();
+  qaAsking = false;
   phase = "report";
-  qaRoot.classList.add("hidden");
+  cancelAnimationFrame(raf);
+  await stopRecording();
+  runView.classList.remove("visible", "qa-mode", "qa-mind");
+  runView.classList.add("hidden");
+  document.getElementById("qa-panel")?.classList.add("hidden");
+  stageRoot.classList.add("hidden");
+  const exitBtn = document.getElementById("btn-exit");
+  if (exitBtn) exitBtn.textContent = "Exit";
   reportRoot.classList.remove("hidden");
-  setQaButtonReady(qaQuestions.length > 0 || Boolean(state().objections?.questions?.length));
+  setQaButtonReady(
+    qaQuestions.length > 0 || Boolean(state().objections?.questions?.length)
+  );
   window.scrollTo(0, 0);
 }
 
 async function qaGoNext() {
+  if (phase !== "qa") return;
   stopQaAudio();
   if (qaIndex >= qaQuestions.length - 1) {
-    exitQaSession();
+    await exitQaSession();
     return;
   }
   qaIndex += 1;
   renderQaQuestion();
   await speakQaQuestion();
+}
+
+async function qaGoPrev() {
+  if (phase !== "qa" || qaIndex <= 0) return;
+  stopQaAudio();
+  qaIndex -= 1;
+  renderQaQuestion();
+  await speakQaQuestion();
+}
+
+function processQaTranscript(text) {
+  if (phase !== "qa" || qaAsking || paused) return;
+  const clean = String(text || "").trim();
+  if (!clean) return;
+  sessionTimerService.resetSilenceCounter();
+  hesitationApplied = false;
+  updateLiveTranscript(clean);
+  const prev = qaTranscripts[qaIndex] || "";
+  qaTranscripts[qaIndex] = mergeTranscriptChunk(prev, clean);
+  const words = wordCount(clean);
+  finalWords += words;
+  speakingMs += Math.min(8000, Math.max(400, words * 350));
+  const metrics = vocalMetricsService.ingestTranscript(
+    clean,
+    state().resolvedLanguage
+  );
+  updateMetricHud(metrics || vocalMetricsService.getSnapshot());
 }
 
 /** Avoid double-counting near-duplicate Whisper chunks */
@@ -666,17 +873,17 @@ function startVocalMetrics() {
     onPauseTick: null,
     onPauseEnd: null,
     onFiller: (word, total) => {
-      if (phase !== "running" || paused) return;
+      if (!isLivePhase() || paused || qaAsking) return;
       flashFillerWarning(word, total);
       audience?.onFillerHit(word);
     },
     onRushed: () => {
       // PacingTelemetry owns rush penalties — avoid double-hitting attention
-      if (phase !== "running" || paused) return;
+      if (!isLivePhase() || paused || qaAsking) return;
       setMetricState("Rushed", "danger");
     },
     onMonotone: () => {
-      if (phase !== "running" || paused) return;
+      if (!isLivePhase() || paused || qaAsking) return;
       audience?.onMonotone();
       setMetricState("Monotone", "warn");
     },
@@ -687,13 +894,13 @@ function startVocalMetrics() {
 }
 
 function decayAttentionMeter(pauseMs) {
-  if (phase !== "running" || paused) return;
+  if (!isLivePhase() || paused || qaAsking) return;
   audience?.onTextPause(pauseMs);
   if (pauseMs >= 4000) setMetricState("Pause", "warn");
 }
 
 function onSpeechActivityResumed() {
-  if (phase !== "running") return;
+  if (!isLivePhase() || qaAsking) return;
   audience?.onSpeechResume();
   hesitationApplied = false;
   sessionTimerService.resetSilenceCounter();
@@ -942,7 +1149,7 @@ function startTimers() {
   cancelAnimationFrame(raf);
   lastTick = null;
   const loop = (now) => {
-    if (phase !== "running") return;
+    if (!isLivePhase()) return;
     if (!paused) {
       if (lastTick == null) lastTick = now;
       const delta = (now - lastTick) / 1000;
@@ -959,6 +1166,30 @@ function startTimers() {
 }
 
 function updateTimers() {
+  if (phase === "qa") {
+    const q = qaQuestions[qaIndex];
+    const answerWords = wordCount(q?.suggestedAnswer || "");
+    const saidWords = wordCount(qaTranscripts[qaIndex] || "");
+    const ratio = answerWords > 0 ? saidWords / answerWords : 0;
+    timerTotal.textContent = `Q${qaIndex + 1}/${qaQuestions.length} · ${formatTime(elapsed)}${
+      paused ? "  Paused" : ""
+    }`;
+    if (budgetFill) {
+      budgetFill.style.width = `${Math.min(100, ratio * 100)}%`;
+      budgetFill.classList.toggle("warn", ratio >= 0.9 && ratio < 1.15);
+      budgetFill.classList.toggle("over", ratio >= 1.15);
+      budgetFill.classList.toggle("auto-ready", ratio >= 0.7 && ratio < 0.9);
+    }
+    if (budgetLabel) {
+      budgetLabel.textContent = `Answer coverage · ~${saidWords}/${answerWords || "—"} words`;
+    }
+    if (btnNext) {
+      const onLast = qaIndex >= qaQuestions.length - 1;
+      btnNext.classList.toggle("is-ready", ratio >= 0.55 && !onLast);
+    }
+    return;
+  }
+
   const s = state();
   const target = s.setup.targetMinutes * 60;
   const current = pitchSlides[index];
@@ -1016,19 +1247,23 @@ function startRecording() {
 
   sessionCoordinator = new SessionCoordinator();
   sessionCoordinator.start(stream, {
-    shouldRun: () => phase === "running" && !paused && !micDenied,
+    shouldRun: () => isLivePhase() && !paused && !micDenied && !qaAsking,
     getLanguage: () => state().resolvedLanguage || "en",
-    getWhisperPrompt: () => whisperPromptForSlide(),
-    getSlideIndex: () => index,
+    getWhisperPrompt: () =>
+      phase === "qa" ? whisperPromptForQa() : whisperPromptForSlide(),
+    getSlideIndex: () => (phase === "qa" ? qaIndex : index),
     hasMicSignal: () => Boolean(waveform?.hasSignal?.()),
-    onTranscript: (text, meta) => processTranscriptChunk(text, meta?.slideIndex),
+    onTranscript: (text, meta) => {
+      if (phase === "qa") processQaTranscript(text);
+      else processTranscriptChunk(text, meta?.slideIndex);
+    },
     onClearSpeech: () => {
-      if (phase !== "running" || paused) return;
+      if (!isLivePhase() || paused || qaAsking) return;
       audience?.onClearSpeech();
       setMetricState("Clear", "steady");
     },
     onUnclearSpeech: () => {
-      if (phase !== "running" || paused) return;
+      if (!isLivePhase() || paused || qaAsking) return;
       // Mic energy without clean STT — still counts as "not silent" for heckles
       sessionTimerService.resetSilenceCounter();
       hesitationApplied = false;
@@ -1040,18 +1275,18 @@ function startRecording() {
     onError: (err) => console.warn("[STT]", err),
     pacingHandlers: {
       onSteadyPacing: ({ wpm }) => {
-        if (phase !== "running" || paused) return;
+        if (!isLivePhase() || paused || qaAsking) return;
         audience?.onSteadyPacing(wpm);
         setMetricState("Steady", "steady");
       },
       onRushing: ({ wpm }) => {
-        if (phase !== "running" || paused) return;
+        if (!isLivePhase() || paused || qaAsking) return;
         flashPacingWarning("Pacing: RUSHING!", "rush");
         audience?.onRushed(wpm);
         setMetricState("Rushed", "danger");
       },
       onTooSlow: ({ wpm }) => {
-        if (phase !== "running" || paused) return;
+        if (!isLivePhase() || paused || qaAsking) return;
         flashPacingWarning("Pacing: TOO SLOW!", "slow");
         audience?.onTooSlow(wpm);
         setMetricState("Too slow", "warn");
@@ -1408,19 +1643,45 @@ function restartRun() {
 
 document.getElementById("btn-prev").addEventListener("click", () => {
   showControls();
-  goPrev();
+  if (phase === "qa") void qaGoPrev();
+  else void goPrev();
 });
 document.getElementById("btn-next").addEventListener("click", () => {
   showControls();
-  goNext();
+  if (phase === "qa") void qaGoNext();
+  else void goNext();
 });
 document.getElementById("btn-pause").addEventListener("click", () => {
+  if (!isLivePhase()) return;
   paused = !paused;
   document.getElementById("btn-pause").textContent = paused ? "Resume" : "Pause";
+  if (phase === "qa" && paused) stopQaAudio();
   showControls();
 });
-document.getElementById("btn-restart").addEventListener("click", restartRun);
+document.getElementById("btn-restart").addEventListener("click", () => {
+  if (phase === "qa") {
+    stopQaAudio();
+    qaIndex = 0;
+    qaTranscripts = qaQuestions.map(() => "");
+    elapsed = 0;
+    renderQaQuestion();
+    void speakQaQuestion();
+    return;
+  }
+  restartRun();
+});
 document.getElementById("btn-exit").addEventListener("click", async () => {
+  if (phase === "qa") {
+    await exitQaSession();
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
   await stopRecording();
   if (document.fullscreenElement) {
     try {
@@ -1447,22 +1708,19 @@ document.getElementById("btn-new").addEventListener("click", () => {
 });
 
 btnQa?.addEventListener("click", () => {
-  startQaSession();
-});
-document.getElementById("qa-exit")?.addEventListener("click", () => {
-  exitQaSession();
+  void startQaSession();
 });
 document.getElementById("qa-replay")?.addEventListener("click", () => {
-  speakQaQuestion();
-});
-document.getElementById("qa-next")?.addEventListener("click", () => {
-  qaGoNext();
+  void speakQaQuestion();
 });
 document.getElementById("qa-mode-mind")?.addEventListener("click", () => {
   qaMode = "mind";
   applyQaModeUi();
   if (document.getElementById("qa-status")?.dataset.state === "your-turn") {
-    setQaStatus("Your turn — answer out loud from memory.", "your-turn");
+    setQaStatus(
+      "Your turn — answer out loud from memory. Room is listening.",
+      "your-turn"
+    );
   }
 });
 document.getElementById("qa-mode-script")?.addEventListener("click", () => {
@@ -1470,27 +1728,30 @@ document.getElementById("qa-mode-script")?.addEventListener("click", () => {
   applyQaModeUi();
   if (document.getElementById("qa-status")?.dataset.state === "your-turn") {
     setQaStatus(
-      "Your turn — use the answer script, or switch to From mind.",
+      "Your turn — say the answer script out loud. Room is listening.",
       "your-turn"
     );
   }
 });
 
 window.addEventListener("mousemove", () => {
-  if (phase === "running") showControls();
+  if (isLivePhase()) showControls();
 });
 
 window.addEventListener("keydown", (e) => {
   if (phase === "qa") {
     if (e.key === "Escape") {
       e.preventDefault();
-      exitQaSession();
+      void exitQaSession();
     } else if (e.key === " " || e.key === "ArrowRight") {
       e.preventDefault();
-      qaGoNext();
+      void qaGoNext();
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      void qaGoPrev();
     } else if (e.key === "r" || e.key === "R") {
       e.preventDefault();
-      speakQaQuestion();
+      void speakQaQuestion();
     } else if (e.key === "m" || e.key === "M") {
       e.preventDefault();
       qaMode = "mind";
@@ -1499,6 +1760,9 @@ window.addEventListener("keydown", (e) => {
       e.preventDefault();
       qaMode = "script";
       applyQaModeUi();
+    } else if (e.key === "p" || e.key === "P") {
+      e.preventDefault();
+      document.getElementById("btn-pause").click();
     }
     return;
   }

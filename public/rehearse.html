@@ -71,9 +71,31 @@
               <div class="budget-bar"><div id="budget-fill" class="budget-fill"></div></div>
               <p id="budget-label" class="budget-label"></p>
             </div>
+
+            <!-- Q&A overlays the slide area: AI asks, you speak the answer -->
+            <div id="qa-panel" class="qa-panel hidden">
+              <p class="qa-progress font-utility">
+                Question <span id="qa-index">1</span> / <span id="qa-total">5</span>
+              </p>
+              <p class="qa-eyebrow">Investor asks</p>
+              <h2 id="qa-question" class="qa-question-live">…</h2>
+              <p id="qa-why" class="qa-why"></p>
+              <p id="qa-status" class="qa-status" aria-live="polite">Getting ready…</p>
+              <div class="qa-mode-row" role="group" aria-label="Answer mode">
+                <button id="qa-mode-mind" class="qa-mode is-active" type="button">From mind</button>
+                <button id="qa-mode-script" class="qa-mode" type="button">Show script</button>
+              </div>
+              <button id="qa-replay" class="btn btn-ghost btn-sm qa-replay" type="button">
+                Replay question
+              </button>
+            </div>
+
             <p id="stage-script" class="stage-script"></p>
             <p id="memorize-hint" class="memorize-hint hidden" aria-live="polite">
               Memorize mode — speak from memory. Script is hidden.
+            </p>
+            <p id="qa-mind-hint" class="qa-mind-hint hidden" aria-live="polite">
+              Answer out loud from memory — your reply script is hidden.
             </p>
             <button
               id="btn-next"
@@ -188,51 +210,6 @@
           <button id="btn-again" class="btn btn-outline" type="button">Pitch again</button>
           <button id="btn-back-script" class="btn btn-outline" type="button">Back to script</button>
           <button id="btn-new" class="btn btn-ghost" type="button">New deck</button>
-        </div>
-      </main>
-    </div>
-
-    <!-- Post-pitch Q&A: AI voice asks tough questions; answer from mind or a ready script -->
-    <div id="qa-root" class="qa-root hidden">
-      <header class="site-header qa-header">
-        <a class="brand" href="/">
-          <img src="/logo.svg" alt="CrowdWork AI" width="36" height="36" />
-          <span class="brand-text">
-            <span class="brand-name">CrowdWork</span>
-            <span class="brand-ai">AI</span>
-          </span>
-        </a>
-        <button id="qa-exit" class="btn btn-ghost btn-sm" type="button">Exit Q&amp;A</button>
-      </header>
-      <main class="qa-stage">
-        <p class="qa-progress font-utility">
-          Question <span id="qa-index">1</span> / <span id="qa-total">5</span>
-        </p>
-        <p class="qa-eyebrow">Investor asks</p>
-        <h1 id="qa-question" class="qa-question">Loading…</h1>
-        <p id="qa-why" class="qa-why"></p>
-        <p id="qa-status" class="qa-status" aria-live="polite">Getting ready…</p>
-
-        <div class="qa-mode-row" role="group" aria-label="Answer mode">
-          <button id="qa-mode-mind" class="qa-mode is-active" type="button">
-            From mind
-          </button>
-          <button id="qa-mode-script" class="qa-mode" type="button">
-            Ready script
-          </button>
-        </div>
-
-        <p id="qa-mind-hint" class="qa-mind-hint">
-          Answer out loud from memory — the script stays hidden.
-        </p>
-        <div id="qa-answer-panel" class="qa-answer-panel hidden">
-          <p class="qa-answer-label font-utility">Answer script</p>
-          <p id="qa-answer" class="qa-answer"></p>
-        </div>
-
-        <div class="qa-actions">
-          <button id="qa-replay" class="btn btn-outline" type="button">Replay question</button>
-          <button id="qa-next" class="btn btn-primary" type="button">Next question</button>
         </div>
       </main>
     </div>
